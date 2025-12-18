@@ -55,7 +55,6 @@ SUSPENDED_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type
 C_SUSPENDED_FILL = PatternFill(start_color="FFE699", end_color="FFE699", fill_type="solid")  # Yellow for c.suspended
 ISSUE_FILL = PatternFill(start_color="7030A0", end_color="7030A0", fill_type="solid")  # Purple for issue
 TAKEN_FILL = PatternFill(start_color="00B0F0", end_color="00B0F0", fill_type="solid")  # Blue for taken
-PENDING_FILL = PatternFill(start_color="FFA500", end_color="FFA500", fill_type="solid")  # Orange for pending
 CELL_FONT = Font(name="Calibri", size=11)
 BORDER = Border(
     left=Side(style='thin'),
@@ -80,7 +79,7 @@ user_check_in_progress = {}  # Store user check progress
 
 # Default cooldown time (5 seconds)
 DEFAULT_COOLDOWN = 5
-CHECK_INTERVAL = 1.5  # Interval between checking accounts (1.5 seconds)
+CHECK_INTERVAL = 0.5  # Interval between checking accounts (1.5 seconds)
 
 # Initialize data files and folders
 def init_files():
@@ -1089,7 +1088,7 @@ def mark_taken_in_excel():
 def get_taken_info():
     try:
         if not os.path.exists(EXCEL_FILE):
-            return {"total": 0, "taken": 0, "fresh": 0}
+            return {"total_confirmed": 0, "taken": 0, "fresh": 0}
         
         wb = load_workbook(EXCEL_FILE)
         ws = wb.active
@@ -1118,7 +1117,17 @@ def get_taken_info():
     except:
         return {"total_confirmed": 0, "taken": 0, "fresh": 0}
 
-# 3. USER ACCOUNT CHECK SYSTEM (NEW FEATURE)
+# 3. PENDING ACCOUNTS SYSTEM (UPDATED - System only, not in Excel)
+
+# Get pending accounts info
+def get_pending_accounts_info():
+    try:
+        pending_data = load_json(PENDING_ACCOUNTS_FILE)
+        return pending_data.get("pending_accounts", {})
+    except:
+        return {}
+
+# 4. USER ACCOUNT CHECK SYSTEM (NEW FEATURE)
 
 # Check user's confirmed accounts
 def check_user_accounts(username):
@@ -1165,7 +1174,7 @@ def check_uid_with_interval(uid):
     time.sleep(CHECK_INTERVAL)  # Add interval between checks
     return check_uid_live_sync(uid)
 
-# Check all user accounts in background
+# Check all user accounts in background with live updates
 def check_user_accounts_background(username, chat_id, message_id, update_stats=False):
     try:
         success, result = check_user_accounts(username)
@@ -1186,7 +1195,8 @@ def check_user_accounts_background(username, chat_id, message_id, update_stats=F
         user_stats = get_user_stats(user_id)
         original_confirmed = user_stats.get("confirmed", 0) if user_stats else 0
         
-        bot.edit_message_text(
+        # Create initial message
+        message = bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
             text=f"🔍 Checking @{username}'s accounts...\n\n"
@@ -1194,7 +1204,8 @@ def check_user_accounts_background(username, chat_id, message_id, update_stats=F
                  f"✅ Originally confirmed: {original_confirmed}\n"
                  f"⏰ Interval: {CHECK_INTERVAL} seconds per account\n"
                  f"⏳ Estimated time: {total_accounts * CHECK_INTERVAL:.1f} seconds\n\n"
-                 f"Checking in progress..."
+                 f"📈 Progress: 0/{total_accounts} (0%)\n"
+                 f"✅ Live: 0 | ❌ Dead: 0"
         )
         
         live_count = 0
@@ -1204,24 +1215,6 @@ def check_user_accounts_background(username, chat_id, message_id, update_stats=F
         # Check each account with interval
         for i, account in enumerate(user_accounts, 1):
             uid = account['username']
-            
-            # Update progress message every 10 accounts
-            if i % 10 == 0 or i == total_accounts:
-                progress = f"⏳ Progress: {i}/{total_accounts} accounts\n"
-                progress += f"✅ Live: {live_count} | ❌ Dead: {dead_count}"
-                
-                try:
-                    bot.edit_message_text(
-                        chat_id=chat_id,
-                        message_id=message_id,
-                        text=f"🔍 Checking @{username}'s accounts...\n\n"
-                             f"📊 Total accounts: {total_accounts}\n"
-                             f"✅ Originally confirmed: {original_confirmed}\n\n"
-                             f"{progress}\n\n"
-                             f"Checking in progress..."
-                    )
-                except:
-                    pass
             
             # Check if UID is live
             is_live = check_uid_with_interval(uid)
@@ -1236,6 +1229,25 @@ def check_user_accounts_background(username, chat_id, message_id, update_stats=F
                 live_count += 1
             else:
                 dead_count += 1
+            
+            # Update progress after each check
+            progress_percent = (i / total_accounts) * 100
+            
+            # Update message with live results
+            try:
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=f"🔍 Checking @{username}'s accounts...\n\n"
+                         f"📊 Total accounts to check: {total_accounts}\n"
+                         f"✅ Originally confirmed: {original_confirmed}\n"
+                         f"⏰ Interval: {CHECK_INTERVAL} seconds per account\n\n"
+                         f"📈 Progress: {i}/{total_accounts} ({progress_percent:.1f}%)\n"
+                         f"✅ Live: {live_count} | ❌ Dead: {dead_count}\n\n"
+                         f"🔍 Last checked: {uid[:15]}... - {'✅ LIVE' if is_live else '❌ DEAD'}"
+                )
+            except:
+                pass
         
         # Save check results
         check_data = load_json(USER_CHECK_RESULTS_FILE)
@@ -1366,7 +1378,7 @@ def update_user_stats_after_check(username, new_confirmed):
         print(f"Error updating user stats: {e}")
         return False, str(e)
 
-# Check all users' accounts
+# Check all users' accounts with parallel checking
 def check_all_users_accounts(chat_id, message_id):
     try:
         users_data = load_json(USERS_FILE)
@@ -1382,7 +1394,7 @@ def check_all_users_accounts(chat_id, message_id):
         
         # Start checking in background thread
         thread = threading.Thread(
-            target=check_all_users_background,
+            target=check_all_users_background_parallel,
             args=(users_dict, chat_id, message_id)
         )
         thread.start()
@@ -1395,12 +1407,11 @@ def check_all_users_accounts(chat_id, message_id):
             text=f"❌ Error: {str(e)}"
         )
 
-# Check all users in background
-def check_all_users_background(users_dict, chat_id, message_id):
+# Check all users in background with parallel processing
+def check_all_users_background_parallel(users_dict, chat_id, message_id):
     try:
         total_users = len(users_dict)
-        checked_users = 0
-        results = []
+        users_list = list(users_dict.items())
         
         bot.edit_message_text(
             chat_id=chat_id,
@@ -1408,65 +1419,94 @@ def check_all_users_background(users_dict, chat_id, message_id):
             text=f"🔍 Checking ALL users' accounts...\n\n"
                  f"👥 Total users: {total_users}\n"
                  f"⏰ Interval: {CHECK_INTERVAL} seconds per account\n"
+                 f"🔀 Parallel checking: 5 users at once\n"
                  f"⏳ This may take a while...\n\n"
-                 f"Starting check..."
+                 f"📈 Progress: 0/{total_users} (0%)\n"
+                 f"✅ Total Live: 0 | ❌ Total Dead: 0\n"
+                 f"🔍 Currently checking: None"
         )
         
-        for user_id, user_info in users_dict.items():
-            checked_users += 1
-            username = user_info.get("username", "Unknown")
-            user_code = user_info.get("user_code", "Unknown")
+        results = []
+        total_live = 0
+        total_dead = 0
+        total_accounts_checked = 0
+        
+        # Process users in batches of 5 for parallel checking
+        batch_size = 5
+        for i in range(0, len(users_list), batch_size):
+            batch = users_list[i:i+batch_size]
+            batch_results = []
             
-            # Get user's confirmed accounts
-            success, user_accounts = check_user_accounts(username)
-            
-            if not success:
-                results.append({
+            # Check each user in the batch
+            for user_id, user_info in batch:
+                username = user_info.get("username", "Unknown")
+                user_code = user_info.get("user_code", "Unknown")
+                
+                # Get user's confirmed accounts
+                success, user_accounts = check_user_accounts(username)
+                
+                if not success:
+                    batch_results.append({
+                        'username': username,
+                        'user_code': user_code,
+                        'error': user_accounts,
+                        'live': 0,
+                        'dead': 0,
+                        'total': 0
+                    })
+                    continue
+                
+                total_accounts = len(user_accounts)
+                live_count = 0
+                dead_count = 0
+                
+                # Check each account
+                for account in user_accounts:
+                    uid = account['username']
+                    is_live = check_uid_with_interval(uid)
+                    
+                    if is_live:
+                        live_count += 1
+                    else:
+                        dead_count += 1
+                
+                batch_results.append({
                     'username': username,
                     'user_code': user_code,
-                    'error': user_accounts,
-                    'live': 0,
-                    'dead': 0,
-                    'total': 0
+                    'live': live_count,
+                    'dead': dead_count,
+                    'total': total_accounts,
+                    'accuracy': (live_count / total_accounts * 100) if total_accounts > 0 else 0
                 })
-                continue
-            
-            total_accounts = len(user_accounts)
-            live_count = 0
-            dead_count = 0
-            
-            # Check each account
-            for account in user_accounts:
-                uid = account['username']
-                is_live = check_uid_with_interval(uid)
                 
-                if is_live:
-                    live_count += 1
-                else:
-                    dead_count += 1
+                # Update totals
+                total_live += live_count
+                total_dead += dead_count
+                total_accounts_checked += total_accounts
             
-            results.append({
-                'username': username,
-                'user_code': user_code,
-                'live': live_count,
-                'dead': dead_count,
-                'total': total_accounts,
-                'accuracy': (live_count / total_accounts * 100) if total_accounts > 0 else 0
-            })
+            results.extend(batch_results)
             
-            # Update progress every user
-            progress_text = f"🔍 Checking ALL users' accounts...\n\n"
-            progress_text += f"👥 Progress: {checked_users}/{total_users} users\n"
-            progress_text += f"⏰ Current user: @{username}\n"
-            progress_text += f"📊 Accounts: {total_accounts}\n"
-            progress_text += f"✅ Live: {live_count} | ❌ Dead: {dead_count}\n\n"
-            progress_text += f"Checking in progress..."
+            # Update progress
+            completed = min(i + batch_size, len(users_list))
+            progress_percent = (completed / total_users) * 100
             
+            # Get currently checking users
+            checking_users = [info.get("username", "Unknown") for _, info in batch]
+            
+            # Update message
             try:
                 bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=message_id,
-                    text=progress_text
+                    text=f"🔍 Checking ALL users' accounts...\n\n"
+                         f"👥 Total users: {total_users}\n"
+                         f"⏰ Interval: {CHECK_INTERVAL} seconds per account\n"
+                         f"🔀 Parallel checking: {len(batch)} users at once\n\n"
+                         f"📈 Progress: {completed}/{total_users} ({progress_percent:.1f}%)\n"
+                         f"✅ Total Live: {total_live} | ❌ Total Dead: {total_dead}\n"
+                         f"📊 Accounts checked: {total_accounts_checked}\n\n"
+                         f"🔍 Currently checking:\n" + "\n".join([f"• @{user}" for user in checking_users[:3]]) +
+                         (f"\n... and {len(checking_users)-3} more" if len(checking_users) > 3 else "")
                 )
             except:
                 pass
@@ -1479,30 +1519,25 @@ def check_all_users_background(users_dict, chat_id, message_id):
 👥 Total users checked: {len(results)}
 
 📊 Summary:
+✅ Total live accounts: {total_live}
+❌ Total dead accounts: {total_dead}
+📊 Total accounts checked: {total_accounts_checked}
+📈 Overall accuracy: {(total_live / total_accounts_checked * 100) if total_accounts_checked > 0 else 0:.1f}%
+
+📋 Top Performers (by accuracy):
 """
         
-        total_live = sum(r.get('live', 0) for r in results)
-        total_dead = sum(r.get('dead', 0) for r in results)
-        total_accounts = sum(r.get('total', 0) for r in results)
-        
-        report_text += f"✅ Total live accounts: {total_live}\n"
-        report_text += f"❌ Total dead accounts: {total_dead}\n"
-        report_text += f"📊 Total accounts checked: {total_accounts}\n"
-        report_text += f"📈 Overall accuracy: {(total_live / total_accounts * 100) if total_accounts > 0 else 0:.1f}%\n\n"
-        
-        report_text += "📋 Detailed Results:\n"
-        
         # Sort by accuracy (highest first)
-        sorted_results = sorted(results, key=lambda x: x.get('accuracy', 0), reverse=True)
+        valid_results = [r for r in results if 'error' not in r and r.get('total', 0) > 0]
+        sorted_results = sorted(valid_results, key=lambda x: x.get('accuracy', 0), reverse=True)
         
-        for i, result in enumerate(sorted_results[:20], 1):  # Show top 20
-            if 'error' in result:
-                report_text += f"{i}. @{result['username']} ({result['user_code']}) - ❌ {result['error']}\n"
-            else:
-                report_text += f"{i}. @{result['username']} ({result['user_code']}) - ✅ {result['live']} | ❌ {result['dead']} | 📊 {result['total']} | 📈 {result['accuracy']:.1f}%\n"
+        for i, result in enumerate(sorted_results[:10], 1):
+            report_text += f"{i}. @{result['username']} - ✅ {result['live']}/{result['total']} ({result['accuracy']:.1f}%)\n"
         
-        if len(results) > 20:
-            report_text += f"\n... and {len(results) - 20} more users"
+        # Add users with errors
+        error_results = [r for r in results if 'error' in r]
+        if error_results:
+            report_text += f"\n❌ Users with errors: {len(error_results)}"
         
         # Add update button
         keyboard = InlineKeyboardMarkup()
@@ -1525,7 +1560,7 @@ def check_all_users_background(users_dict, chat_id, message_id):
             'total_users': len(results),
             'total_live': total_live,
             'total_dead': total_dead,
-            'total_accounts': total_accounts,
+            'total_accounts': total_accounts_checked,
             'results': results,
             'report_file': report_filepath
         }
@@ -1667,7 +1702,7 @@ def check_command(message):
         f"🔍 Starting check for @{username}...\n\n"
         f"⏰ Please wait, this may take a while.\n"
         f"Interval: {CHECK_INTERVAL} seconds per account\n\n"
-        f"Checking user's confirmed accounts..."
+        f"Preparing to check user's confirmed accounts..."
     )
     
     # Start background check thread
@@ -1692,7 +1727,8 @@ def checkall_command(message):
         f"🔍 Starting check for ALL users...\n\n"
         f"⏰ This will take a while depending on\n"
         f"the number of accounts to check.\n"
-        f"Interval: {CHECK_INTERVAL} seconds per account\n\n"
+        f"Interval: {CHECK_INTERVAL} seconds per account\n"
+        f"🔀 Parallel checking: 5 users at once\n\n"
         f"Preparing to check all users..."
     )
     
@@ -2007,6 +2043,44 @@ This does NOT affect the Excel file.
             
         except Exception as e:
             bot.send_message(message.chat.id, f"❌ Error: {str(e)}")
+            
+# Edit user statistics
+def edit_user_stats(username, field, value):
+    user_id = get_user_id_from_username(username.lower())
+    if not user_id:
+        return False, "User not found"
+    
+    try:
+        users_data = load_json(USERS_FILE)
+        
+        if "users" not in users_data or user_id not in users_data["users"]:
+            return False, "User not found in database"
+        
+        # Validate field
+        valid_fields = ["confirmed", "suspended", "c_suspended", "issue", "total"]
+        field_lower = field.lower()
+        
+        if field_lower not in valid_fields:
+            return False, f"Invalid field. Valid fields are: {', '.join(valid_fields)}"
+        
+        try:
+            new_value = int(value)
+            if new_value < 0:
+                return False, "Value cannot be negative"
+        except ValueError:
+            return False, "Value must be a number"
+        
+        # Update the field
+        users_data["users"][user_id][field_lower] = new_value
+        
+        # Save updated data
+        save_json(USERS_FILE, users_data)
+        
+        return True, f"Updated @{username}'s {field} to {new_value}"
+        
+    except Exception as e:
+        print(f"Error editing user stats: {e}")
+        return False, str(e)
 
 # EDIT command - Edit user statistics
 @bot.message_handler(commands=['edit'])
@@ -3828,7 +3902,7 @@ Use /work to start processing.
     
     bot.send_message(message.chat.id, stats_text)
 
-# Allstats command (Admin/Subadmin only)
+# Allstats command (Admin/Subadmin only) - FIXED
 @bot.message_handler(commands=['allstats'])
 def allstats_command(message):
     user_id = str(message.from_user.id)
@@ -4023,8 +4097,10 @@ def export_command(message):
         except:
             record_count = 0
         
-        # Get taken and pending info
+        # Get taken info
         taken_info = get_taken_info()
+        
+        # Get pending accounts info (from system only)
         pending_info = get_pending_accounts_info()
         total_pending = sum(info.get('pending_count', 0) for info in pending_info.values())
         
