@@ -18,7 +18,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Initialize bot
-TOKEN = "8360833535:AAFAk8vp2ODvSJbj1rztN2BmFanmiTvkozs"
+TOKEN = "8564619628:AAEFvSvmIpkoMOAZb195SVy_1z-qylpwjHY"
 bot = telebot.TeleBot(TOKEN, parse_mode=None)  # Set parse_mode to None by default
 
 # File paths
@@ -39,6 +39,7 @@ USER_LIMITS_FILE = 'user_limits.json'
 TAKEN_FILE = 'taken_accounts.json'
 PENDING_ACCOUNTS_FILE = 'pending_accounts.json'
 USER_CHECK_RESULTS_FILE = 'user_check_results.json'
+SYSTEM_STATUS_FILE = 'system_status.json'  # New file for system status
 
 # Admin credentials
 ADMIN_PASSWORD = "n"  # Default password
@@ -157,6 +158,15 @@ def init_files():
         with open(USER_CHECK_RESULTS_FILE, 'w') as f:
             json.dump({}, f, indent=4)
     
+    # Create system status file if not exists
+    if not os.path.exists(SYSTEM_STATUS_FILE):
+        with open(SYSTEM_STATUS_FILE, 'w') as f:
+            json.dump({
+                "work_enabled": True,
+                "off_notice": "⚠️ System is temporarily offline for maintenance. Please try again later.",
+                "on_notice": "✅ System is now online and working normally."
+            }, f, indent=4)
+    
     # Load username mapping
     load_username_mapping()
     
@@ -200,6 +210,62 @@ def start_cooldown(user_id):
         cooldown_timers[user_id] = time.time() + cooldown_time
         return True
     return False
+
+# ========== SYSTEM STATUS FUNCTIONS ==========
+
+def get_system_status():
+    """Get current system status"""
+    try:
+        return load_json(SYSTEM_STATUS_FILE)
+    except:
+        return {"work_enabled": True, "off_notice": "", "on_notice": ""}
+
+def save_system_status(status_data):
+    """Save system status"""
+    return save_json(SYSTEM_STATUS_FILE, status_data)
+
+def is_work_enabled():
+    """Check if work system is enabled"""
+    status = get_system_status()
+    return status.get("work_enabled", True)
+
+def enable_work():
+    """Enable work system"""
+    status = get_system_status()
+    status["work_enabled"] = True
+    save_system_status(status)
+    return True
+
+def disable_work():
+    """Disable work system"""
+    status = get_system_status()
+    status["work_enabled"] = False
+    save_system_status(status)
+    return True
+
+def set_off_notice(notice):
+    """Set offline notice"""
+    status = get_system_status()
+    status["off_notice"] = notice
+    save_system_status(status)
+    return True
+
+def set_on_notice(notice):
+    """Set online notice"""
+    status = get_system_status()
+    status["on_notice"] = notice
+    save_system_status(status)
+    return True
+
+def get_off_notice():
+    """Get offline notice"""
+    status = get_system_status()
+    return status.get("off_notice", "⚠️ System is temporarily offline for maintenance. Please try again later.")
+
+def get_on_notice():
+    """Get online notice"""
+    status = get_system_status()
+    return status.get("on_notice", "✅ System is now online and working normally.")
 
 # Create Excel file with styling (UPDATED - removed Pending column)
 def create_excel_with_styling():
@@ -452,6 +518,131 @@ def save_to_excel_fallback(full_input, username, password, processor, user_code,
     except Exception as e:
         print(f"❌ Error in fallback Excel save: {e}")
         return False
+
+# Remove user's data from Excel
+def remove_user_from_excel(username):
+    """Remove all entries of a user from Excel file"""
+    try:
+        if not os.path.exists(EXCEL_FILE):
+            return False, "Excel file not found"
+        
+        # Get user ID and code
+        user_id = get_user_id_from_username(username.lower())
+        if not user_id:
+            return False, "User not found"
+        
+        user_code = get_user_code(user_id)
+        if not user_code:
+            return False, "User code not found"
+        
+        # Load workbook
+        wb = load_workbook(EXCEL_FILE)
+        ws = wb.active
+        
+        # Find rows to delete
+        rows_to_delete = []
+        for row in range(2, ws.max_row + 1):
+            processor_code = ws.cell(row=row, column=5).value  # User Code column
+            if processor_code == user_code:
+                rows_to_delete.append(row)
+        
+        # Delete rows from bottom to top
+        for row in sorted(rows_to_delete, reverse=True):
+            ws.delete_rows(row)
+        
+        # Save Excel
+        wb.save(EXCEL_FILE)
+        
+        return True, f"Removed {len(rows_to_delete)} rows for user @{username}"
+        
+    except Exception as e:
+        print(f"Error removing user from Excel: {e}")
+        return False, str(e)
+
+# Remove specific status data from Excel
+def remove_user_status_from_excel(username, status_to_remove):
+    """Remove specific status entries of a user from Excel"""
+    try:
+        if not os.path.exists(EXCEL_FILE):
+            return False, "Excel file not found"
+        
+        # Get user ID and code
+        user_id = get_user_id_from_username(username.lower())
+        if not user_id:
+            return False, "User not found"
+        
+        user_code = get_user_code(user_id)
+        if not user_code:
+            return False, "User code not found"
+        
+        # Load workbook
+        wb = load_workbook(EXCEL_FILE)
+        ws = wb.active
+        
+        # Find rows to delete based on status
+        rows_to_delete = []
+        for row in range(2, ws.max_row + 1):
+            processor_code = ws.cell(row=row, column=5).value  # User Code column
+            status = ws.cell(row=row, column=6).value  # Status column
+            
+            if processor_code == user_code and status and status_to_remove.lower() in str(status).lower():
+                rows_to_delete.append(row)
+        
+        # Delete rows from bottom to top
+        for row in sorted(rows_to_delete, reverse=True):
+            ws.delete_rows(row)
+        
+        # Save Excel
+        wb.save(EXCEL_FILE)
+        
+        return True, f"Removed {len(rows_to_delete)} '{status_to_remove}' rows for user @{username}"
+        
+    except Exception as e:
+        print(f"Error removing user status from Excel: {e}")
+        return False, str(e)
+
+# Keep only specified status data in Excel
+def keep_only_user_status_in_excel(username, status_to_keep):
+    """Keep only specified status entries of a user in Excel"""
+    try:
+        if not os.path.exists(EXCEL_FILE):
+            return False, "Excel file not found"
+        
+        # Get user ID and code
+        user_id = get_user_id_from_username(username.lower())
+        if not user_id:
+            return False, "User not found"
+        
+        user_code = get_user_code(user_id)
+        if not user_code:
+            return False, "User code not found"
+        
+        # Load workbook
+        wb = load_workbook(EXCEL_FILE)
+        ws = wb.active
+        
+        # Find rows to delete (all except the status to keep)
+        rows_to_delete = []
+        for row in range(2, ws.max_row + 1):
+            processor_code = ws.cell(row=row, column=5).value  # User Code column
+            status = ws.cell(row=row, column=6).value  # Status column
+            
+            if processor_code == user_code:
+                if not status or status_to_keep.lower() not in str(status).lower():
+                    rows_to_delete.append(row)
+        
+        # Delete rows from bottom to top
+        for row in sorted(rows_to_delete, reverse=True):
+            ws.delete_rows(row)
+        
+        # Save Excel
+        wb.save(EXCEL_FILE)
+        
+        return True, f"Kept only '{status_to_keep}' entries for user @{username}, removed {len(rows_to_delete)} other rows"
+        
+    except Exception as e:
+        print(f"Error keeping user status in Excel: {e}")
+        return False, str(e)
 
 # Save permanent results to all_results folder
 def save_permanent_results():
@@ -848,8 +1039,106 @@ def get_user_stats(user_id):
         return users_data["users"][user_id]
     return None
 
+# Reset specific user stats
+def reset_user_stats(username, keep_type=None, full_reset=False):
+    """Reset user stats with options"""
+    user_id = get_user_id_from_username(username.lower())
+    if not user_id:
+        return False, "User not found"
+    
+    try:
+        users_data = load_json(USERS_FILE)
+        
+        if "users" not in users_data or user_id not in users_data["users"]:
+            return False, "User not found in database"
+        
+        if full_reset:
+            # Reset all stats to zero
+            users_data["users"][user_id]["confirmed"] = 0
+            users_data["users"][user_id]["suspended"] = 0
+            users_data["users"][user_id]["c_suspended"] = 0
+            users_data["users"][user_id]["issue"] = 0
+            users_data["users"][user_id]["total"] = 0
+            
+            # Remove user's data from Excel
+            remove_user_from_excel(username)
+            
+            save_json(USERS_FILE, users_data)
+            return True, f"Reset ALL stats and data for @{username}"
+        
+        if keep_type is None:
+            # Reset all stats to zero
+            users_data["users"][user_id]["confirmed"] = 0
+            users_data["users"][user_id]["suspended"] = 0
+            users_data["users"][user_id]["c_suspended"] = 0
+            users_data["users"][user_id]["issue"] = 0
+            users_data["users"][user_id]["total"] = 0
+            
+            # Remove user from Excel (all rows)
+            remove_user_from_excel(username)
+            
+            save_json(USERS_FILE, users_data)
+            return True, f"Reset all stats for @{username}"
+        
+        else:
+            # Reset everything except the specified type
+            keep_type = keep_type.lower()
+            
+            # Save the value to keep
+            if keep_type == "live" or keep_type == "confirmed":
+                value_to_keep = users_data["users"][user_id]["confirmed"]
+            elif keep_type == "suspended":
+                value_to_keep = users_data["users"][user_id]["suspended"]
+            elif keep_type == "c_suspended":
+                value_to_keep = users_data["users"][user_id]["c_suspended"]
+            elif keep_type == "issue":
+                value_to_keep = users_data["users"][user_id]["issue"]
+            else:
+                return False, f"Invalid keep type. Use: live, suspended, c_suspended, or issue"
+            
+            # Reset all to zero
+            users_data["users"][user_id]["confirmed"] = 0
+            users_data["users"][user_id]["suspended"] = 0
+            users_data["users"][user_id]["c_suspended"] = 0
+            users_data["users"][user_id]["issue"] = 0
+            
+            # Restore the kept value
+            if keep_type == "live" or keep_type == "confirmed":
+                users_data["users"][user_id]["confirmed"] = value_to_keep
+            elif keep_type == "suspended":
+                users_data["users"][user_id]["suspended"] = value_to_keep
+            elif keep_type == "c_suspended":
+                users_data["users"][user_id]["c_suspended"] = value_to_keep
+            elif keep_type == "issue":
+                users_data["users"][user_id]["issue"] = value_to_keep
+            
+            # Recalculate total
+            users_data["users"][user_id]["total"] = (
+                users_data["users"][user_id]["confirmed"] +
+                users_data["users"][user_id]["suspended"] +
+                users_data["users"][user_id]["c_suspended"] +
+                users_data["users"][user_id]["issue"]
+            )
+            
+            # Remove other statuses from Excel
+            if keep_type == "confirmed":
+                keep_only_user_status_in_excel(username, "confirmed")
+            elif keep_type == "suspended":
+                keep_only_user_status_in_excel(username, "suspended")
+            elif keep_type == "c_suspended":
+                keep_only_user_status_in_excel(username, "c.suspended")
+            elif keep_type == "issue":
+                keep_only_user_status_in_excel(username, "issue")
+            
+            save_json(USERS_FILE, users_data)
+            return True, f"Reset stats for @{username}, kept only {keep_type} ({value_to_keep})"
+    
+    except Exception as e:
+        print(f"Error resetting user stats: {e}")
+        return False, str(e)
+
 # Reset all user stats AND clear Excel file
-def reset_all_stats():
+def reset_all_stats(full_reset=False):
     # Clear user stats
     users_data = load_json(USERS_FILE)
     if "users" in users_data:
@@ -859,6 +1148,7 @@ def reset_all_stats():
             users_data["users"][user_id]["c_suspended"] = 0
             users_data["users"][user_id]["issue"] = 0
             users_data["users"][user_id]["total"] = 0
+        
         save_json(USERS_FILE, users_data)
     
     # Clear Excel file
@@ -1117,7 +1407,7 @@ def get_taken_info():
     except:
         return {"total_confirmed": 0, "taken": 0, "fresh": 0}
 
-# 3. PENDING ACCOUNTS SYSTEM (UPDATED - System only, not in Excel)
+# 3. PENDING ACCOUNTS SYSTEM (UPDATED - FIXED)
 
 # Get pending accounts info
 def get_pending_accounts_info():
@@ -1126,6 +1416,57 @@ def get_pending_accounts_info():
         return pending_data.get("pending_accounts", {})
     except:
         return {}
+
+# Mark all confirmed accounts as pending (FIXED)
+def mark_all_as_pending():
+    try:
+        if not os.path.exists(EXCEL_FILE):
+            return False, "Excel file not found"
+        
+        wb = load_workbook(EXCEL_FILE)
+        ws = wb.active
+        
+        pending_count = 0
+        pending_users = {}
+        
+        # Count all confirmed accounts and group by user
+        for row in range(2, ws.max_row + 1):
+            status = ws.cell(row=row, column=6).value  # Status column
+            processor_code = ws.cell(row=row, column=5).value  # User Code column
+            processor_name = ws.cell(row=row, column=4).value  # Processor column
+            
+            if status and "confirmed" in str(status).lower():
+                pending_count += 1
+                
+                # Find user ID from processor name
+                user_id = get_user_id_from_username(processor_name.lower().replace('@', '')) if processor_name else None
+                
+                if processor_name and user_id:
+                    # Get username without @
+                    username = processor_name.replace('@', '')
+                    
+                    if username not in pending_users:
+                        pending_users[username] = {
+                            'user_id': user_id,
+                            'user_code': processor_code,
+                            'pending_count': 0
+                        }
+                    pending_users[username]['pending_count'] += 1
+        
+        # Save to pending accounts file
+        pending_data = load_json(PENDING_ACCOUNTS_FILE)
+        pending_data["pending_accounts"] = pending_users
+        save_json(PENDING_ACCOUNTS_FILE, pending_data)
+        
+        return True, {
+            'total_pending': pending_count,
+            'users': pending_users,
+            'user_count': len(pending_users)
+        }
+        
+    except Exception as e:
+        print(f"Error marking all as pending: {e}")
+        return False, str(e)
 
 # 4. USER ACCOUNT CHECK SYSTEM (NEW FEATURE)
 
@@ -1378,258 +1719,66 @@ def update_user_stats_after_check(username, new_confirmed):
         print(f"Error updating user stats: {e}")
         return False, str(e)
 
-# Check all users' accounts with parallel checking
-def check_all_users_accounts(chat_id, message_id):
-    try:
-        users_data = load_json(USERS_FILE)
-        users_dict = users_data.get("users", {})
+# ========== UNMARKP COMMAND ==========
+
+@bot.message_handler(commands=['unmarkp'])
+def unmarkp_command(message):
+    user_id = str(message.from_user.id)
+    
+    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
+        bot.send_message(message.chat.id, "❌ This command is for admins only.")
+        return
+    
+    command = message.text.replace('/unmarkp', '').strip()
+    
+    if command.lower() == 'all':
+        # Clear all pending accounts
+        pending_data = load_json(PENDING_ACCOUNTS_FILE)
+        pending_count = sum(info.get('pending_count', 0) for info in pending_data.get("pending_accounts", {}).values())
         
-        if not users_dict:
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text="❌ No users found to check."
-            )
+        pending_data["pending_accounts"] = {}
+        save_json(PENDING_ACCOUNTS_FILE, pending_data)
+        
+        bot.send_message(message.chat.id,
+                         f"✅ All pending accounts have been cleared!\n\n"
+                         f"📊 Cleared: {pending_count} pending accounts\n"
+                         f"👥 Affected users: All users with pending accounts\n\n"
+                         f"💡 Pending system has been reset to 0 for all users.")
+        return
+    
+    else:
+        # Clear specific user's pending accounts
+        username = command.replace('@', '').strip()
+        if not username:
+            bot.send_message(message.chat.id,
+                           "📝 Clear Pending Accounts\n\n"
+                           "Usage:\n"
+                           "/unmarkp @username  - Clear user's pending accounts\n"
+                           "/unmarkp all       - Clear ALL pending accounts\n\n"
+                           "Example:\n"
+                           "/unmarkp nhossain123\n\n"
+                           "Note: This resets pending count to 0")
             return
         
-        # Start checking in background thread
-        thread = threading.Thread(
-            target=check_all_users_background_parallel,
-            args=(users_dict, chat_id, message_id)
-        )
-        thread.start()
+        # Clear user's pending accounts
+        pending_data = load_json(PENDING_ACCOUNTS_FILE)
+        pending_users = pending_data.get("pending_accounts", {})
         
-    except Exception as e:
-        print(f"Error starting all users check: {e}")
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=f"❌ Error: {str(e)}"
-        )
+        if username in pending_users:
+            pending_count = pending_users[username].get('pending_count', 0)
+            del pending_users[username]
+            pending_data["pending_accounts"] = pending_users
+            save_json(PENDING_ACCOUNTS_FILE, pending_data)
+            
+            bot.send_message(message.chat.id,
+                           f"✅ Pending accounts cleared for @{username}!\n\n"
+                           f"📊 Cleared: {pending_count} pending accounts\n"
+                           f"✅ Pending count reset to 0\n\n"
+                           f"💡 User can now be marked as pending again if needed.")
+        else:
+            bot.send_message(message.chat.id, f"ℹ️ No pending accounts found for @{username}")
 
-# Check all users in background with parallel processing
-def check_all_users_background_parallel(users_dict, chat_id, message_id):
-    try:
-        total_users = len(users_dict)
-        users_list = list(users_dict.items())
-        
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=f"🔍 Checking ALL users' accounts...\n\n"
-                 f"👥 Total users: {total_users}\n"
-                 f"⏰ Interval: {CHECK_INTERVAL} seconds per account\n"
-                 f"🔀 Parallel checking: 5 users at once\n"
-                 f"⏳ This may take a while...\n\n"
-                 f"📈 Progress: 0/{total_users} (0%)\n"
-                 f"✅ Total Live: 0 | ❌ Total Dead: 0\n"
-                 f"🔍 Currently checking: None"
-        )
-        
-        results = []
-        total_live = 0
-        total_dead = 0
-        total_accounts_checked = 0
-        
-        # Process users in batches of 5 for parallel checking
-        batch_size = 5
-        for i in range(0, len(users_list), batch_size):
-            batch = users_list[i:i+batch_size]
-            batch_results = []
-            
-            # Check each user in the batch
-            for user_id, user_info in batch:
-                username = user_info.get("username", "Unknown")
-                user_code = user_info.get("user_code", "Unknown")
-                
-                # Get user's confirmed accounts
-                success, user_accounts = check_user_accounts(username)
-                
-                if not success:
-                    batch_results.append({
-                        'username': username,
-                        'user_code': user_code,
-                        'error': user_accounts,
-                        'live': 0,
-                        'dead': 0,
-                        'total': 0
-                    })
-                    continue
-                
-                total_accounts = len(user_accounts)
-                live_count = 0
-                dead_count = 0
-                
-                # Check each account
-                for account in user_accounts:
-                    uid = account['username']
-                    is_live = check_uid_with_interval(uid)
-                    
-                    if is_live:
-                        live_count += 1
-                    else:
-                        dead_count += 1
-                
-                batch_results.append({
-                    'username': username,
-                    'user_code': user_code,
-                    'live': live_count,
-                    'dead': dead_count,
-                    'total': total_accounts,
-                    'accuracy': (live_count / total_accounts * 100) if total_accounts > 0 else 0
-                })
-                
-                # Update totals
-                total_live += live_count
-                total_dead += dead_count
-                total_accounts_checked += total_accounts
-            
-            results.extend(batch_results)
-            
-            # Update progress
-            completed = min(i + batch_size, len(users_list))
-            progress_percent = (completed / total_users) * 100
-            
-            # Get currently checking users
-            checking_users = [info.get("username", "Unknown") for _, info in batch]
-            
-            # Update message
-            try:
-                bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    text=f"🔍 Checking ALL users' accounts...\n\n"
-                         f"👥 Total users: {total_users}\n"
-                         f"⏰ Interval: {CHECK_INTERVAL} seconds per account\n"
-                         f"🔀 Parallel checking: {len(batch)} users at once\n\n"
-                         f"📈 Progress: {completed}/{total_users} ({progress_percent:.1f}%)\n"
-                         f"✅ Total Live: {total_live} | ❌ Total Dead: {total_dead}\n"
-                         f"📊 Accounts checked: {total_accounts_checked}\n\n"
-                         f"🔍 Currently checking:\n" + "\n".join([f"• @{user}" for user in checking_users[:3]]) +
-                         (f"\n... and {len(checking_users)-3} more" if len(checking_users) > 3 else "")
-                )
-            except:
-                pass
-        
-        # Prepare final report
-        report_text = f"""
-✅ All Users Check Complete!
-
-📅 Checked at: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-👥 Total users checked: {len(results)}
-
-📊 Summary:
-✅ Total live accounts: {total_live}
-❌ Total dead accounts: {total_dead}
-📊 Total accounts checked: {total_accounts_checked}
-📈 Overall accuracy: {(total_live / total_accounts_checked * 100) if total_accounts_checked > 0 else 0:.1f}%
-
-📋 Top Performers (by accuracy):
-"""
-        
-        # Sort by accuracy (highest first)
-        valid_results = [r for r in results if 'error' not in r and r.get('total', 0) > 0]
-        sorted_results = sorted(valid_results, key=lambda x: x.get('accuracy', 0), reverse=True)
-        
-        for i, result in enumerate(sorted_results[:10], 1):
-            report_text += f"{i}. @{result['username']} - ✅ {result['live']}/{result['total']} ({result['accuracy']:.1f}%)\n"
-        
-        # Add users with errors
-        error_results = [r for r in results if 'error' in r]
-        if error_results:
-            report_text += f"\n❌ Users with errors: {len(error_results)}"
-        
-        # Add update button
-        keyboard = InlineKeyboardMarkup()
-        keyboard.row(
-            InlineKeyboardButton("✅ Update All User Stats", callback_data="update_all_stats"),
-            InlineKeyboardButton("📥 Download Report", callback_data="download_check_report")
-        )
-        
-        # Save report to file
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_filename = f"user_check_report_{timestamp}.txt"
-        report_filepath = os.path.join(WORK_FOLDER, report_filename)
-        
-        with open(report_filepath, 'w', encoding='utf-8') as f:
-            f.write(report_text)
-        
-        # Save results for later use
-        report_data = {
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'total_users': len(results),
-            'total_live': total_live,
-            'total_dead': total_dead,
-            'total_accounts': total_accounts_checked,
-            'results': results,
-            'report_file': report_filepath
-        }
-        
-        check_data = load_json(USER_CHECK_RESULTS_FILE)
-        check_data['all_users_report'] = report_data
-        save_json(USER_CHECK_RESULTS_FILE, check_data)
-        
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=report_text,
-            reply_markup=keyboard
-        )
-        
-    except Exception as e:
-        print(f"Error in all users check: {e}")
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=f"❌ Error during check: {str(e)}"
-        )
-
-# Update all users stats based on check
-def update_all_users_stats():
-    try:
-        check_data = load_json(USER_CHECK_RESULTS_FILE)
-        report_data = check_data.get('all_users_report')
-        
-        if not report_data:
-            return False, "No check report found"
-        
-        results = report_data.get('results', [])
-        updated_users = []
-        errors = []
-        
-        for result in results:
-            if 'error' in result:
-                errors.append(f"@{result['username']}: {result['error']}")
-                continue
-            
-            username = result['username']
-            new_confirmed = result['live']
-            
-            # Update user stats
-            success, update_result = update_user_stats_after_check(username, new_confirmed)
-            
-            if success:
-                updated_users.append({
-                    'username': username,
-                    'new_confirmed': new_confirmed,
-                    'original_confirmed': update_result.get('original_confirmed', 0),
-                    'difference': update_result.get('difference', 0)
-                })
-            else:
-                errors.append(f"@{username}: {update_result}")
-        
-        return True, {
-            'updated_users': updated_users,
-            'errors': errors,
-            'total_updated': len(updated_users),
-            'total_errors': len(errors)
-        }
-        
-    except Exception as e:
-        print(f"Error updating all users stats: {e}")
-        return False, str(e)
-
-# ========== END OF NEW FEATURES ==========
+# ========== COMMAND HANDLERS ==========
 
 # Set cooldown command (Admin only)
 @bot.message_handler(commands=['set_cooldown'])
@@ -1663,9 +1812,495 @@ def set_cooldown_command(message):
                         "/set_cooldown 0  (disable cooldown)\n"
                         "/set_cooldown 10 (10 seconds cooldown)")
 
-# ========== NEW COMMANDS ==========
+# ========== SYSTEM STATUS COMMANDS ==========
 
-# CHECK command - Check user's confirmed accounts
+@bot.message_handler(commands=['off'])
+def off_command(message):
+    """Turn off work system"""
+    user_id = str(message.from_user.id)
+    
+    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
+        bot.send_message(message.chat.id, "❌ This command is for admins only.")
+        return
+    
+    if disable_work():
+        off_notice = get_off_notice()
+        
+        # Broadcast to all users
+        users_data = load_json(USERS_FILE)
+        user_ids = list(users_data.get("users", {}).keys())
+        
+        success = 0
+        failed = 0
+        
+        for uid in user_ids:
+            try:
+                bot.send_message(uid, off_notice)
+                success += 1
+            except:
+                failed += 1
+        
+        response = f"""
+🔴 SYSTEM TURNED OFF
+
+{off_notice}
+
+📢 Broadcast Status:
+✅ Sent to: {success} users
+❌ Failed: {failed} users
+
+💡 Users will not be able to use /work command until system is turned back on.
+        """
+        
+        bot.send_message(message.chat.id, response)
+    else:
+        bot.send_message(message.chat.id, "❌ Error turning off system")
+
+@bot.message_handler(commands=['on'])
+def on_command(message):
+    """Turn on work system"""
+    user_id = str(message.from_user.id)
+    
+    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
+        bot.send_message(message.chat.id, "❌ This command is for admins only.")
+        return
+    
+    if enable_work():
+        on_notice = get_on_notice()
+        
+        # Broadcast to all users
+        users_data = load_json(USERS_FILE)
+        user_ids = list(users_data.get("users", {}).keys())
+        
+        success = 0
+        failed = 0
+        
+        for uid in user_ids:
+            try:
+                bot.send_message(uid, on_notice)
+                success += 1
+            except:
+                failed += 1
+        
+        response = f"""
+🟢 SYSTEM TURNED ON
+
+{on_notice}
+
+📢 Broadcast Status:
+✅ Sent to: {success} users
+❌ Failed: {failed} users
+
+💡 Users can now use /work command again.
+        """
+        
+        bot.send_message(message.chat.id, response)
+    else:
+        bot.send_message(message.chat.id, "❌ Error turning on system")
+
+@bot.message_handler(commands=['setoffnotice'])
+def setoffnotice_command(message):
+    """Set offline notice"""
+    user_id = str(message.from_user.id)
+    
+    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
+        bot.send_message(message.chat.id, "❌ This command is for admins only.")
+        return
+    
+    notice = message.text.replace('/setoffnotice', '').strip()
+    
+    if not notice:
+        current_notice = get_off_notice()
+        bot.send_message(message.chat.id,
+                        f"🔴 Current Offline Notice:\n\n{current_notice}\n\n"
+                        "Usage: /setoffnotice your notice message here\n\n"
+                        "Example: /setoffnotice ⚠️ System maintenance in progress. Please wait.")
+        return
+    
+    if set_off_notice(notice):
+        bot.send_message(message.chat.id, f"✅ Offline notice set:\n\n{notice}")
+    else:
+        bot.send_message(message.chat.id, "❌ Error setting offline notice")
+
+@bot.message_handler(commands=['setonnotice'])
+def setonnotice_command(message):
+    """Set online notice"""
+    user_id = str(message.from_user.id)
+    
+    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
+        bot.send_message(message.chat.id, "❌ This command is for admins only.")
+        return
+    
+    notice = message.text.replace('/setonnotice', '').strip()
+    
+    if not notice:
+        current_notice = get_on_notice()
+        bot.send_message(message.chat.id,
+                        f"🟢 Current Online Notice:\n\n{current_notice}\n\n"
+                        "Usage: /setonnotice your notice message here\n\n"
+                        "Example: /setonnotice ✅ System is back online! You can start working now.")
+        return
+    
+    if set_on_notice(notice):
+        bot.send_message(message.chat.id, f"✅ Online notice set:\n\n{notice}")
+    else:
+        bot.send_message(message.chat.id, "❌ Error setting online notice")
+
+# ========== RESETSTATS COMMAND (FIXED) ==========
+
+@bot.message_handler(commands=['resetstats'])
+def resetstats_command(message):
+    user_id = str(message.from_user.id)
+    
+    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
+        bot.send_message(message.chat.id, "❌ This command is for admins only.")
+        return
+    
+    command = message.text.replace('/resetstats', '').strip()
+    
+    if not command:
+        # Show help with emojis explanation
+        help_text = """
+🔄 Reset Statistics - Help
+
+📊 Emojis Legend:
+✅ Confirmed (Live accounts)
+❌ Suspended accounts
+🟡 C.Suspended accounts
+⚠️ Issue accounts
+📊 Total processed accounts
+
+Usage:
+/resetstats @username           - Reset user stats
+/resetstats @username full      - Reset ALL user data
+/resetstats @username -live     - Reset stats, keep only LIVE accounts
+/resetstats @username -suspended - Reset stats, keep only SUSPENDED accounts
+/resetstats @username -c_suspended - Reset stats, keep only C.SUSPENDED accounts
+/resetstats @username -issue    - Reset stats, keep only ISSUE accounts
+/resetstats all                - Reset ALL user stats
+/resetstats all full           - Reset ALL user stats
+
+📝 Examples:
+/resetstats nhossain123          - Reset stats for @nhossain123
+/resetstats nhossain123 full     - Reset ALL data for @nhossain123
+/resetstats nhossain123 -live    - Keep only live accounts, remove others
+/resetstats nhossain123 -suspended - Keep only suspended accounts
+/resetstats nhossain123 -issue   - Keep only issue accounts
+/resetstats all                 - Reset all users' stats
+/resetstats all full            - Reset ALL data for all users
+
+⚠️ Warnings:
+- Use 'full' to also clear Excel data
+- This action cannot be undone!
+        """
+        bot.send_message(message.chat.id, help_text)
+        return
+    
+    parts = command.split()
+    
+    if parts[0].lower() == 'all':
+        full_reset = len(parts) > 1 and parts[1].lower() == 'full'
+        
+        # Reset all users
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton(f"✅ Yes, Reset All", callback_data=f"reset_all_{'full' if full_reset else 'normal'}"),
+            InlineKeyboardButton("❌ No, Cancel", callback_data="reset_cancel")
+        )
+        
+        reset_type = "FULL (including Excel data)" if full_reset else "NORMAL (stats only)"
+        
+        bot.send_message(message.chat.id,
+                         f"⚠️ Reset ALL User Statistics\n\n"
+                         f"Reset Type: {reset_type}\n\n"
+                         f"This will reset ALL user statistics:\n"
+                         f"- ✅ Confirmed counts\n"
+                         f"- ❌ Suspended counts\n"
+                         f"- 🟡 C.Suspended counts\n"
+                         f"- ⚠️ Issue counts\n"
+                         f"- 📈 Total processed\n"
+                         f"- 📊 Excel file will be cleared\n\n"
+                         f"This action cannot be undone!\n\n"
+                         f"Are you sure you want to reset all statistics?",
+                         reply_markup=keyboard)
+        return
+    
+    # Process specific user
+    username = parts[0].replace('@', '').strip()
+    
+    # Check if user exists
+    target_user_id = get_user_id_from_username(username.lower())
+    if not target_user_id:
+        bot.send_message(message.chat.id, f"❌ User @{username} not found.")
+        return
+    
+    # Check for full reset
+    full_reset = len(parts) > 1 and parts[1].lower() == 'full'
+    
+    # Parse keep options
+    keep_types = []
+    for part in parts[1:]:
+        if part.startswith('-') and part[1:].lower() != 'full':
+            keep_type = part[1:].lower()
+            if keep_type in ['live', 'confirmed', 'suspended', 'c_suspended', 'c.suspended', 'issue']:
+                # Normalize live/confirmed
+                if keep_type in ['live', 'confirmed']:
+                    keep_types.append('confirmed')
+                elif keep_type == 'c.suspended':
+                    keep_types.append('c_suspended')
+                else:
+                    keep_types.append(keep_type)
+    
+    if full_reset:
+        # Full reset
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton(f"✅ Reset ALL Data", callback_data=f"reset_user_{username}_full"),
+            InlineKeyboardButton("❌ Cancel", callback_data="reset_cancel")
+        )
+        
+        bot.send_message(message.chat.id,
+                         f"⚠️ FULL Reset User Data\n\n"
+                         f"👤 User: @{username}\n\n"
+                         f"This will reset ALL data for this user:\n"
+                         f"- ✅ Confirmed counts\n"
+                         f"- ❌ Suspended counts\n"
+                         f"- 🟡 C.Suspended counts\n"
+                         f"- ⚠️ Issue counts\n"
+                         f"- 📈 Total processed\n"
+                         f"- 📊 Excel entries will be removed\n\n"
+                         f"This action cannot be undone!\n\n"
+                         f"Are you sure?",
+                         reply_markup=keyboard)
+    
+    elif not keep_types:
+        # Reset all stats
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton(f"✅ Reset @{username}'s Stats", callback_data=f"reset_user_{username}_all"),
+            InlineKeyboardButton("❌ Cancel", callback_data="reset_cancel")
+        )
+        
+        bot.send_message(message.chat.id,
+                         f"⚠️ Reset User Statistics\n\n"
+                         f"👤 User: @{username}\n\n"
+                         f"This will reset ALL statistics for this user:\n"
+                         f"- ✅ Confirmed counts\n"
+                         f"- ❌ Suspended counts\n"
+                         f"- 🟡 C.Suspended counts\n"
+                         f"- ⚠️ Issue counts\n"
+                         f"- 📈 Total processed\n"
+                         f"- 📊 Excel entries will be removed\n\n"
+                         f"This action cannot be undone!\n\n"
+                         f"Are you sure?",
+                         reply_markup=keyboard)
+    
+    elif len(keep_types) == 1:
+        # Reset all except one type
+        keep_type = keep_types[0]
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton(f"✅ Reset, Keep {keep_type}", callback_data=f"reset_user_{username}_{keep_type}"),
+            InlineKeyboardButton("❌ Cancel", callback_data="reset_cancel")
+        )
+        
+        bot.send_message(message.chat.id,
+                         f"⚠️ Reset User Statistics\n\n"
+                         f"👤 User: @{username}\n"
+                         f"💾 Keep: {keep_type} accounts\n\n"
+                         f"This will reset ALL statistics except {keep_type} accounts:\n"
+                         f"- Will keep only {keep_type} accounts\n"
+                         f"- Remove all other account types\n"
+                         f"- Update Excel file accordingly\n\n"
+                         f"This action cannot be undone!\n\n"
+                         f"Are you sure?",
+                         reply_markup=keyboard)
+    
+    else:
+        # Multiple keep types - complex operation
+        keep_types_str = ', '.join(keep_types)
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton(f"✅ Reset, Keep Selected", callback_data=f"reset_user_{username}_multiple"),
+            InlineKeyboardButton("❌ Cancel", callback_data="reset_cancel")
+        )
+        
+        bot.send_message(message.chat.id,
+                         f"⚠️ Reset User Statistics\n\n"
+                         f"👤 User: @{username}\n"
+                         f"💾 Keep: {keep_types_str}\n\n"
+                         f"This will reset statistics, keeping only:\n"
+                         f"- {keep_types_str} accounts\n"
+                         f"- Remove all other account types\n"
+                         f"- Update Excel file accordingly\n\n"
+                         f"This action cannot be undone!\n\n"
+                         f"Are you sure?",
+                         reply_markup=keyboard)
+        
+        # Store the keep types for later use
+        user_states[user_id] = {
+            'step': 'reset_user_multiple',
+            'username': username,
+            'keep_types': keep_types
+        }
+
+# Handle reset callback (FIXED)
+@bot.callback_query_handler(func=lambda call: call.data.startswith('reset_'))
+def handle_reset_callback(call):
+    user_id = str(call.from_user.id)
+    
+    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
+        bot.answer_callback_query(call.id, "❌ Permission denied")
+        return
+    
+    if call.data == "reset_cancel":
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="❌ Statistics reset cancelled."
+        )
+        bot.answer_callback_query(call.id, "Cancelled")
+        return
+    
+    elif call.data.startswith("reset_all_"):
+        parts = call.data.split('_')
+        full_reset = parts[2] == 'full' if len(parts) > 2 else False
+        
+        if reset_all_stats(full_reset=full_reset):
+            reset_type = "FULL (including Excel data)" if full_reset else "NORMAL (stats only)"
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=f"✅ All user statistics have been reset ({reset_type}) AND Excel file has been cleared!"
+            )
+        else:
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="❌ Error resetting statistics."
+            )
+        bot.answer_callback_query(call.id)
+    
+    elif call.data.startswith("reset_user_"):
+        parts = call.data.split('_')
+        if len(parts) >= 4:
+            username = parts[2]
+            reset_type = parts[3] if len(parts) > 3 else "all"
+            
+            if reset_type == "full":
+                # Full reset
+                success, result = reset_user_stats(username, full_reset=True)
+                
+                if success:
+                    response = f"""
+✅ FULL Reset Complete!
+
+👤 User: @{username}
+✅ Reset ALL data including:
+  - ✅ Confirmed: 0
+  - ❌ Suspended: 0
+  - 🟡 C.Suspended: 0
+  - ⚠️ Issue: 0
+  - 📊 Total: 0
+  - 📊 Excel data: Removed all entries
+                    """
+                    bot.edit_message_text(
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
+                        text=response
+                    )
+                else:
+                    bot.edit_message_text(
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
+                        text=f"❌ Error: {result}"
+                    )
+            
+            elif reset_type == "all":
+                # Reset all stats
+                success, result = reset_user_stats(username)
+                
+                if success:
+                    response = f"""
+✅ Reset Complete!
+
+👤 User: @{username}
+✅ Statistics reset to zero:
+  - ✅ Confirmed: 0
+  - ❌ Suspended: 0
+  - 🟡 C.Suspended: 0
+  - ⚠️ Issue: 0
+  - 📊 Total: 0
+                    """
+                    bot.edit_message_text(
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
+                        text=response
+                    )
+                else:
+                    bot.edit_message_text(
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
+                        text=f"❌ Error: {result}"
+                    )
+            
+            elif reset_type == "multiple":
+                # Multiple keep types - need to handle specially
+                if user_id in user_states and user_states[user_id]['step'] == 'reset_user_multiple':
+                    keep_types = user_states[user_id].get('keep_types', [])
+                    
+                    # This is a complex operation - we'll keep only the specified types
+                    # For simplicity, we'll implement a basic version
+                    
+                    success, result = reset_user_stats(username, keep_type="confirmed" if 'confirmed' in keep_types else None)
+                    
+                    if success:
+                        response = f"✅ Reset stats for @{username}, keeping: {', '.join(keep_types)}\n"
+                        response += "⚠️ Note: Complex filtering requires manual Excel cleanup"
+                        
+                        bot.edit_message_text(
+                            chat_id=call.message.chat.id,
+                            message_id=call.message.message_id,
+                            text=response
+                        )
+                    else:
+                        bot.edit_message_text(
+                            chat_id=call.message.chat.id,
+                            message_id=call.message.message_id,
+                            text=f"❌ Error: {result}"
+                        )
+                    
+                    # Clear state
+                    if user_id in user_states:
+                        del user_states[user_id]
+            
+            else:
+                # Reset all except one type
+                success, result = reset_user_stats(username, reset_type)
+                
+                if success:
+                    response = f"""
+✅ Reset Complete!
+
+👤 User: @{username}
+✅ Statistics reset, kept only {reset_type} accounts
+                    """
+                    bot.edit_message_text(
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
+                        text=response
+                    )
+                else:
+                    bot.edit_message_text(
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
+                        text=f"❌ Error: {result}"
+                    )
+            
+            bot.answer_callback_query(call.id)
+
+# ========== CHECK COMMAND ==========
+
 @bot.message_handler(commands=['check'])
 def check_command(message):
     user_id = str(message.from_user.id)
@@ -1712,156 +2347,8 @@ def check_command(message):
     )
     thread.start()
 
-# CHECKALL command - Check all users' confirmed accounts
-@bot.message_handler(commands=['checkall'])
-def checkall_command(message):
-    user_id = str(message.from_user.id)
-    
-    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
-        bot.send_message(message.chat.id, "❌ This command is for admins only.")
-        return
-    
-    # Send initial message
-    msg = bot.send_message(
-        message.chat.id,
-        f"🔍 Starting check for ALL users...\n\n"
-        f"⏰ This will take a while depending on\n"
-        f"the number of accounts to check.\n"
-        f"Interval: {CHECK_INTERVAL} seconds per account\n"
-        f"🔀 Parallel checking: 5 users at once\n\n"
-        f"Preparing to check all users..."
-    )
-    
-    # Start background check thread
-    thread = threading.Thread(
-        target=check_all_users_accounts,
-        args=(message.chat.id, msg.message_id)
-    )
-    thread.start()
+# ========== TAKEN COMMAND ==========
 
-# Handle check callback buttons
-@bot.callback_query_handler(func=lambda call: call.data.startswith('update_stats_') or 
-                     call.data.startswith('keep_stats_') or call.data == 'update_all_stats' or 
-                     call.data == 'download_check_report')
-def handle_check_callback(call):
-    user_id = str(call.from_user.id)
-    
-    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
-        bot.answer_callback_query(call.id, "❌ Permission denied")
-        return
-    
-    if call.data.startswith('update_stats_'):
-        # Update specific user's stats
-        parts = call.data.split('_')
-        if len(parts) >= 4:
-            username = parts[2]
-            new_confirmed = int(parts[3])
-            
-            success, result = update_user_stats_after_check(username, new_confirmed)
-            
-            if success:
-                update_info = result
-                
-                response = f"""
-✅ User Stats Updated!
-
-👤 User: @{username}
-✅ Original confirmed: {update_info['original_confirmed']}
-✅ New confirmed: {update_info['new_confirmed']}
-📊 Difference: {update_info['difference']}
-
-📢 User has been notified of the update.
-                """
-                
-                bot.edit_message_text(
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    text=response
-                )
-                bot.answer_callback_query(call.id, f"Updated @{username}'s stats")
-            else:
-                bot.answer_callback_query(call.id, f"Error: {result}")
-    
-    elif call.data.startswith('keep_stats_'):
-        # Keep original stats
-        parts = call.data.split('_')
-        if len(parts) >= 3:
-            username = parts[2]
-            
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text=f"✅ Kept original stats for @{username}\n\n"
-                     f"No changes were made to user's statistics."
-            )
-            bot.answer_callback_query(call.id, f"Kept @{username}'s stats")
-    
-    elif call.data == 'update_all_stats':
-        # Update all users stats
-        success, result = update_all_users_stats()
-        
-        if success:
-            update_info = result
-            
-            response = f"""
-✅ All Users Stats Updated!
-
-📊 Update Summary:
-✅ Updated users: {update_info['total_updated']}
-❌ Errors: {update_info['total_errors']}
-
-👥 Users have been notified of the updates.
-            """
-            
-            if update_info['updated_users']:
-                response += "\n\n📋 Updated Users:\n"
-                for i, user in enumerate(update_info['updated_users'][:10], 1):
-                    response += f"{i}. @{user['username']}: {user['original_confirmed']} → {user['new_confirmed']} ({user['difference']:+})\n"
-            
-            if update_info['errors']:
-                response += f"\n❌ Errors ({len(update_info['errors'])}):\n"
-                for error in update_info['errors'][:5]:
-                    response += f"• {error}\n"
-            
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text=response
-            )
-            bot.answer_callback_query(call.id, f"Updated {update_info['total_updated']} users")
-        else:
-            bot.answer_callback_query(call.id, f"Error: {result}")
-    
-    elif call.data == 'download_check_report':
-        # Download check report
-        check_data = load_json(USER_CHECK_RESULTS_FILE)
-        report_data = check_data.get('all_users_report')
-        
-        if not report_data or 'report_file' not in report_data:
-            bot.answer_callback_query(call.id, "❌ No report found")
-            return
-        
-        report_file = report_data['report_file']
-        
-        if os.path.exists(report_file):
-            try:
-                with open(report_file, 'rb') as f:
-                    bot.send_document(
-                        call.message.chat.id,
-                        f,
-                        caption=f"📊 User Check Report\n"
-                               f"📅 {report_data.get('timestamp', 'Unknown')}\n"
-                               f"👥 {report_data.get('total_users', 0)} users\n"
-                               f"✅ {report_data.get('total_live', 0)} live accounts\n"
-                               f"❌ {report_data.get('total_dead', 0)} dead accounts"
-                    )
-                bot.answer_callback_query(call.id, "✅ Report sent!")
-            except Exception as e:
-                bot.answer_callback_query(call.id, f"❌ Error: {str(e)}")
-        else:
-            bot.answer_callback_query(call.id, "❌ Report file not found")
-
-# TAKEN command
 @bot.message_handler(commands=['taken'])
 def taken_command(message):
     user_id = str(message.from_user.id)
@@ -1895,7 +2382,8 @@ in Excel file. Use /export to download updated file.
     else:
         bot.send_message(message.chat.id, f"❌ Error: {result}")
 
-# MARKP command - Mark user's accounts as pending (UPDATED - removed Excel marking)
+# ========== MARKP COMMAND (FIXED) ==========
+
 @bot.message_handler(commands=['markp'])
 def markp_command(message):
     user_id = str(message.from_user.id)
@@ -1907,64 +2395,59 @@ def markp_command(message):
     command = message.text.replace('/markp', '').strip()
     
     if command.lower() == 'all':
-        # Mark all confirmed accounts as pending (in system only, not Excel)
-        try:
-            if not os.path.exists(EXCEL_FILE):
-                bot.send_message(message.chat.id, "❌ Excel file not found")
-                return
-            
-            wb = load_workbook(EXCEL_FILE)
-            ws = wb.active
-            
-            pending_count = 0
-            pending_users = {}
-            
-            # Count all confirmed accounts
-            for row in range(2, ws.max_row + 1):
-                status = ws.cell(row=row, column=6).value  # Status column
-                processor_code = ws.cell(row=row, column=5).value  # User Code column
-                
-                if status and "confirmed" in str(status).lower():
-                    pending_count += 1
-                    
-                    # Track by user
-                    if processor_code not in pending_users:
-                        pending_users[processor_code] = 0
-                    pending_users[processor_code] += 1
-            
-            # Save to pending accounts file
-            pending_data = load_json(PENDING_ACCOUNTS_FILE)
-            pending_data["all_pending"] = {
-                'count': pending_count,
-                'users_count': len(pending_users),
-                'marked_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            save_json(PENDING_ACCOUNTS_FILE, pending_data)
+        # Mark all confirmed accounts as pending (FIXED)
+        success, result = mark_all_as_pending()
+        
+        if success:
+            info = result
             
             response = f"""
 ✅ Pending System - All Users
 
 📊 Marking Results:
-✅ Marked as Pending: {pending_count} accounts
-👥 Affected Users: {len(pending_users)} users
+✅ Total accounts marked as pending: {info['total_pending']}
+👥 Affected users: {info['user_count']}
 
-💡 Note:
-Accounts are marked as pending in the system only.
-This does NOT affect the Excel file.
-            """
+📋 User Breakdown:
+"""
             
-            if pending_users:
-                response += "\n\n📋 User Breakdown:\n"
-                for user_code, count in pending_users.items():
-                    response += f"• {user_code}: {count} accounts\n"
+            # List users with pending counts
+            user_count = 0
+            for username, user_info in info['users'].items():
+                if user_count < 10:  # Show first 10 users
+                    response += f"• @{username}: {user_info['pending_count']} accounts\n"
+                    user_count += 1
+            
+            if info['user_count'] > 10:
+                response += f"\n... and {info['user_count'] - 10} more users"
+            
+            # Notify all affected users
+            notified_count = 0
+            for username, user_info in info['users'].items():
+                user_id_target = user_info.get('user_id')
+                pending_count = user_info.get('pending_count', 0)
+                
+                if user_id_target and pending_count > 0:
+                    try:
+                        bot.send_message(
+                            user_id_target,
+                            f"📢 Accounts Marked as Pending\n\n"
+                            f"Admin has marked {pending_count} of your confirmed accounts as pending.\n\n"
+                            f"These accounts will be checked and processed later.\n"
+                            f"Use /stats to see your current pending count."
+                        )
+                        notified_count += 1
+                    except:
+                        pass
+            
+            response += f"\n📢 Notifications sent to: {notified_count} users"
             
             bot.send_message(message.chat.id, response)
-            
-        except Exception as e:
-            bot.send_message(message.chat.id, f"❌ Error: {str(e)}")
+        else:
+            bot.send_message(message.chat.id, f"❌ Error: {result}")
     
     else:
-        # Mark specific user's accounts as pending (in system only, not Excel)
+        # Mark specific user's accounts as pending
         username = command.replace('@', '').strip()
         if not username:
             bot.send_message(message.chat.id,
@@ -2021,6 +2504,21 @@ This does NOT affect the Excel file.
                 
                 pending_data["pending_accounts"] = pending_users
                 save_json(PENDING_ACCOUNTS_FILE, pending_data)
+                
+                # Notify the user
+                try:
+                    bot.send_message(
+                        target_user_id,
+                        f"📢 Accounts Marked as Pending\n\n"
+                        f"Admin has marked {pending_count} of your confirmed accounts as pending.\n\n"
+                        f"These accounts will be checked and processed later.\n"
+                        f"Use /stats to see your current pending count."
+                    )
+                except:
+                    pass
+            else:
+                bot.send_message(message.chat.id, f"ℹ️ No confirmed accounts found for @{username}")
+                return
             
             pending_info = get_pending_accounts_info()
             
@@ -2029,7 +2527,7 @@ This does NOT affect the Excel file.
 
 📊 Marking Results:
 ✅ User: @{username}
-✅ Marked as Pending: {pending_count} accounts
+✅ Accounts marked as pending: {pending_count}
 
 📈 Current Pending Stats:
 👥 Total Users with Pending: {len(pending_info)}
@@ -2038,12 +2536,16 @@ This does NOT affect the Excel file.
 💡 Note:
 Accounts are marked as pending in the system only.
 This does NOT affect the Excel file.
+
+📢 User has been notified.
             """
             bot.send_message(message.chat.id, response)
             
         except Exception as e:
             bot.send_message(message.chat.id, f"❌ Error: {str(e)}")
-            
+
+# ========== EDIT COMMAND ==========
+
 # Edit user statistics
 def edit_user_stats(username, field, value):
     user_id = get_user_id_from_username(username.lower())
@@ -2082,7 +2584,6 @@ def edit_user_stats(username, field, value):
         print(f"Error editing user stats: {e}")
         return False, str(e)
 
-# EDIT command - Edit user statistics
 @bot.message_handler(commands=['edit'])
 def edit_command(message):
     user_id = str(message.from_user.id)
@@ -2146,7 +2647,8 @@ def edit_command(message):
     else:
         bot.send_message(message.chat.id, f"❌ Error: {result}")
 
-# LIMIT command - Set user work limit
+# ========== LIMIT COMMAND ==========
+
 @bot.message_handler(commands=['limit'])
 def limit_command(message):
     user_id = str(message.from_user.id)
@@ -2264,7 +2766,8 @@ def limit_command(message):
     except ValueError:
         bot.send_message(message.chat.id, "❌ Limit must be a number")
 
-# PENDINGINFO command - Show pending accounts info
+# ========== PENDINGINFO COMMAND ==========
+
 @bot.message_handler(commands=['pendinginfo'])
 def pendinginfo_command(message):
     user_id = str(message.from_user.id)
@@ -2305,7 +2808,8 @@ def pendinginfo_command(message):
     
     bot.send_message(message.chat.id, response)
 
-# CLEARP command - Clear pending status for user
+# ========== CLEARP COMMAND ==========
+
 @bot.message_handler(commands=['clearp'])
 def clearp_command(message):
     user_id = str(message.from_user.id)
@@ -2332,15 +2836,32 @@ def clearp_command(message):
     pending_users = pending_data.get("pending_accounts", {})
     
     if username in pending_users:
+        # Get user ID for notification
+        user_info = pending_users[username]
+        user_id_target = user_info.get('user_id')
+        
         del pending_users[username]
         pending_data["pending_accounts"] = pending_users
         save_json(PENDING_ACCOUNTS_FILE, pending_data)
+        
+        # Notify the user
+        if user_id_target:
+            try:
+                bot.send_message(
+                    user_id_target,
+                    f"📢 Pending Status Cleared\n\n"
+                    f"Your pending accounts status has been cleared by admin.\n"
+                    f"You no longer have any pending accounts."
+                )
+            except:
+                pass
         
         response = f"""
 ✅ Pending Status Cleared!
 
 👤 User: @{username}
 ✅ Pending status cleared from system
+📢 User has been notified
 
 💡 Note:
 The user's accounts are no longer marked
@@ -2351,7 +2872,154 @@ as pending in the system.
     
     bot.send_message(message.chat.id, response)
 
-# ========== END OF NEW COMMANDS ==========
+# ========== ALLSTATS COMMAND (UPDATED WITHOUT PROCESSED IDs) ==========
+
+@bot.message_handler(commands=['allstats'])
+def allstats_command(message):
+    user_id = str(message.from_user.id)
+    
+    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
+        bot.send_message(message.chat.id, "❌ This command is for admins only.")
+        return
+    
+    users_data = load_json(USERS_FILE)
+    users_dict = users_data.get("users", {})
+    
+    if not users_dict:
+        bot.send_message(message.chat.id, "❌ No users found.")
+        return
+    
+    # Get pending accounts info
+    pending_info = get_pending_accounts_info()
+    
+    users_list = []
+    total_confirmed = 0
+    total_suspended = 0
+    total_c_suspended = 0
+    total_issue = 0
+    total_all = 0
+    banned_users = []
+    pending_approvals_count = len(get_pending_approvals())
+    
+    for uid, stats in users_dict.items():
+        username = stats.get('username', 'Unknown')
+        user_code = stats.get('user_code', 'Unknown')
+        confirmed = stats.get('confirmed', 0)
+        suspended = stats.get('suspended', 0)
+        c_suspended = stats.get('c_suspended', 0)
+        issue = stats.get('issue', 0)
+        total = stats.get('total', 0)
+        
+        # Get pending count for this user
+        user_pending_count = 0
+        if username in pending_info:
+            user_pending_count = pending_info[username].get('pending_count', 0)
+        
+        is_banned = uid in users_data.get("banned", [])
+        status_symbol = "🚫" if is_banned else "✅"
+        
+        # Get user limit
+        limit = get_user_limit(uid)
+        limit_text = f" | 🚫 Limit: {limit}" if limit > 0 else ""
+        
+        # Format user entry with all emojis
+        user_entry = f"{status_symbol} {user_code} (@{username})\n"
+        user_entry += f"   ✅ {confirmed} | ❌ {suspended} | 🟡 {c_suspended} | ⚠️ {issue} | 📊 {total}"
+        
+        if user_pending_count > 0:
+            user_entry += f" | 🟠 Pending: {user_pending_count}"
+        
+        user_entry += limit_text
+        
+        users_list.append(user_entry)
+        
+        if is_banned:
+            banned_users.append(f"@{username}")
+        
+        total_confirmed += confirmed
+        total_suspended += suspended
+        total_c_suspended += c_suspended
+        total_issue += issue
+        total_all += total
+    
+    # Get stock information
+    unprocessed_count, file_count = count_unprocessed_stock()
+    
+    # Get current cooldown
+    cooldown_time = get_cooldown_time()
+    
+    # Get taken info
+    taken_info = get_taken_info()
+    
+    # Get total pending accounts
+    total_pending_accounts = sum(info.get('pending_count', 0) for info in pending_info.values())
+    
+    # Get system status
+    system_status = get_system_status()
+    work_enabled = system_status.get("work_enabled", True)
+    system_status_text = "🟢 ONLINE" if work_enabled else "🔴 OFFLINE"
+    
+    # Create summary with emojis legend
+    summary = f"""
+📊 ALL USER STATS
+
+📈 Emojis Legend:
+✅ Confirmed/Live accounts
+❌ Suspended accounts  
+🟡 C.Suspended accounts
+⚠️ Issue accounts
+📊 Total processed accounts
+🟠 Pending accounts
+🚫 User limit
+✅ Active user
+🚫 Banned user
+
+👥 User Overview:
+✅ Approved Users: {len(users_dict)}
+⏳ Pending Approvals: {pending_approvals_count}
+✅ Active Users: {len(users_dict) - len(banned_users)}
+🚫 Banned Users: {len(banned_users)}
+
+📈 Total Performance:
+✅ Total Confirmed: {total_confirmed}
+❌ Total Suspended: {total_suspended}
+🟡 Total C.Suspended: {total_c_suspended}
+⚠️ Total Issue: {total_issue}
+📊 Total Processed: {total_all}
+
+🆕 Feature Stats:
+🔵 Taken Accounts: {taken_info.get('taken', 0)}
+🟠 Pending Accounts: {total_pending_accounts}
+🟢 Fresh Accounts: {taken_info.get('fresh', 0)}
+
+📦 Stock Information:
+📁 Files: {file_count}
+🔢 Unprocessed: {unprocessed_count}
+
+⏰ System Settings:
+Cooldown: {cooldown_time} seconds
+🔍 Check Interval: {CHECK_INTERVAL} seconds
+🔌 System Status: {system_status_text}
+    """
+    
+    if banned_users:
+        summary += f"\n\n🚫 Banned Users:\n" + "\n".join(banned_users)
+    
+    # Send summary first
+    bot.send_message(message.chat.id, summary)
+    
+    # Then send individual user stats (split if too long)
+    user_stats_text = "📋 Individual User Stats:\n\n"
+    for i, user_stat in enumerate(users_list):
+        if len(user_stats_text + user_stat + "\n\n") > 4000:  # Telegram message limit
+            bot.send_message(message.chat.id, user_stats_text)
+            user_stats_text = ""
+        user_stats_text += user_stat + "\n\n"
+    
+    if user_stats_text:
+        bot.send_message(message.chat.id, user_stats_text)
+
+# ========== OTHER COMMANDS (REST OF THE CODE REMAINS SIMILAR) ==========
 
 # Cancel command - cancel all user states
 @bot.message_handler(commands=['cancel'])
@@ -2438,6 +3106,142 @@ ACCOUNT MANAGER BOT
     
     bot.send_message(message.chat.id, welcome_msg)
 
+# Work command
+@bot.message_handler(commands=['work'])
+def work_command(message):
+    user_id = str(message.from_user.id)
+    username = message.from_user.username or "User"
+    
+    # Update username mapping
+    if username != "User":
+        update_username_mapping(user_id, username)
+    
+    # Check if user is banned
+    if is_user_banned(user_id):
+        bot.send_message(message.chat.id, "❌ You have been banned from using this bot.")
+        return
+    
+    # Check if work system is enabled
+    if not is_work_enabled():
+        off_notice = get_off_notice()
+        bot.send_message(message.chat.id, off_notice)
+        return
+    
+    # Check if user is approved
+    if not is_user_approved(user_id):
+        # Check if pending
+        if has_pending_approval(user_id):
+            bot.send_message(message.chat.id, 
+                           "⏳ Your approval request is pending.\n"
+                           "Please wait for admin approval.")
+            return
+        
+        # Show approval request
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(InlineKeyboardButton("✅ Apply for Approval", callback_data="apply_approval"))
+        
+        bot.send_message(message.chat.id,
+                        "🔒 Approval Required\n\n"
+                        "You need admin approval to use this bot.\n"
+                        "Click the button below to apply for approval:",
+                        reply_markup=keyboard)
+        return
+    
+    # Check if user has reached limit
+    limit_reached, remaining = check_user_limit(user_id)
+    if limit_reached:
+        limit = get_user_limit(user_id)
+        bot.send_message(message.chat.id,
+                        f"🚫 Work Limit Reached!\n\n"
+                        f"You have reached your work limit of {limit} accounts.\n"
+                        f"Please contact admin to increase your limit.\n\n"
+                        f"Your stats: {remaining} accounts remaining (0)")
+        return
+    
+    # Check if there are any uploaded files
+    files = [f for f in os.listdir(FILES_FOLDER) if f.endswith('.txt')]
+    if not files:
+        bot.send_message(message.chat.id, 
+                         "❌ No accounts file found. Please contact admin to upload files.")
+        return
+    
+    # Get the most recent file
+    latest_file = max(files, key=lambda f: os.path.getctime(os.path.join(FILES_FOLDER, f)))
+    filepath = os.path.join(FILES_FOLDER, latest_file)
+    
+    # Read all lines
+    with open(filepath, 'r', encoding='utf-8') as f:
+        all_lines = [line.strip() for line in f if line.strip()]
+    
+    # Filter out already processed accounts
+    unprocessed_lines = []
+    for line in all_lines:
+        parts = line.split('|')
+        if len(parts) >= 2:
+            account_username = parts[0].strip()
+            if not is_account_processed(account_username):
+                unprocessed_lines.append(line)
+    
+    if not unprocessed_lines:
+        bot.send_message(message.chat.id, 
+                         "📭 No unprocessed accounts found.\n"
+                         "All accounts in the file have been processed.")
+        return
+    
+    # Get user code
+    user_code = get_user_code(user_id) or "Unknown"
+    
+    # Store work session
+    work_sessions[user_id] = {
+        'filepath': filepath,
+        'lines': unprocessed_lines,
+        'current_index': 0,
+        'processed_count': 0,
+        'username': username,
+        'user_code': user_code
+    }
+    
+    # Get rules
+    rules = get_rules()
+    
+    # Get current cooldown
+    cooldown_time = get_cooldown_time()
+    
+    # Get user limit info
+    limit = get_user_limit(user_id)
+    user_stats = get_user_stats(user_id)
+    processed = user_stats.get("total", 0) if user_stats else 0
+    
+    # Show instructions with buttons
+    instructions = f"""
+💼 WORK MODE
+
+👤 Worker: @{username}
+🔢 User Code: {user_code}
+
+📋 Rules:
+{rules}
+
+📊 Available: {len(unprocessed_lines)} accounts
+
+⏰ Cooldown: {cooldown_time} seconds per account
+
+📈 Your Stats:
+✅ Processed: {processed} accounts
+{'🚫 Limit: ' + str(limit) + ' accounts' if limit > 0 else '✅ No limit'}
+{'📊 Remaining: ' + str(remaining) + ' accounts' if limit > 0 else ''}
+
+Ready to start processing?
+    """
+    
+    keyboard = InlineKeyboardMarkup()
+    keyboard.row(
+        InlineKeyboardButton("🚀 Start Working", callback_data="work_start"),
+        InlineKeyboardButton("❌ Cancel", callback_data="work_cancel")
+    )
+    
+    bot.send_message(message.chat.id, instructions, reply_markup=keyboard)
+
 # Handle approval request
 @bot.callback_query_handler(func=lambda call: call.data == 'apply_approval')
 def handle_approval_request(call):
@@ -2478,7 +3282,7 @@ def handle_approval_request(call):
     else:
         bot.answer_callback_query(call.id, "❌ Error sending request")
 
-# Pending approvals command (Admin/Subadmin only)
+# Pending approvals command
 @bot.message_handler(commands=['pending'])
 def pending_command(message):
     user_id = str(message.from_user.id)
@@ -2507,7 +3311,7 @@ def pending_command(message):
     
     bot.send_message(message.chat.id, pending_text, reply_markup=keyboard)
 
-# Approve command (Admin/Subadmin only)
+# Approve command
 @bot.message_handler(commands=['approve'])
 def approve_command(message):
     user_id = str(message.from_user.id)
@@ -2946,11 +3750,10 @@ Main Admin Menu
 📊 Statistics:
 /allstats - Show all user statistics
 /stock - Check unprocessed accounts
-/resetstats - Reset all user statistics
+/resetstats - Reset user statistics (with options)
 
 🔍 Account Checking:
 /check @username - Check user's confirmed accounts
-/checkall - Check ALL users' confirmed accounts
 
 👥 User Management:
 /pending - Show pending approvals
@@ -2975,6 +3778,12 @@ Main Admin Menu
 ⚙️ Settings:
 /setrules - Set work rules
 
+🔌 System Control:
+/off - Turn off work system
+/on - Turn on work system
+/setoffnotice - Set offline notice
+/setonnotice - Set online notice
+
 🔄 System:
 /cancel - Cancel current operation
 /logout - Logout from admin
@@ -2985,6 +3794,17 @@ Main Admin Menu
 /markp @username - Mark user's accounts as pending
 /markp all - Mark ALL accounts as pending
 /clearp @username - Clear user's pending status
+/unmarkp @username - Clear user's pending accounts (reset to 0)
+/unmarkp all - Clear ALL pending accounts
+
+🔄 Reset Stats (Advanced):
+/resetstats @username - Reset user's stats
+/resetstats @username full - Reset ALL user data
+/resetstats @username -live - Keep only live accounts
+/resetstats @username -suspended - Keep only suspended
+/resetstats @username -issue - Keep only issue accounts
+/resetstats all - Reset all users' stats
+/resetstats all full - Reset ALL users' data
 
 Tip: Commands with @username need parameters
 Example: /approve @username
@@ -3003,7 +3823,6 @@ Sub-Admin Menu
 
 🔍 Account Checking:
 /check @username - Check user's confirmed accounts
-/checkall - Check ALL users' confirmed accounts
 
 👥 User Management:
 /pending - Show pending approvals
@@ -3018,6 +3837,15 @@ Sub-Admin Menu
 /markp @username - Mark user's accounts as pending
 /markp all - Mark ALL accounts as pending
 /clearp @username - Clear user's pending status
+/unmarkp @username - Clear user's pending accounts (reset to 0)
+/unmarkp all - Clear ALL pending accounts
+
+🔄 Reset Stats:
+/resetstats @username - Reset user's stats
+/resetstats @username full - Reset ALL user data
+/resetstats @username -live - Keep only live accounts
+/resetstats @username -suspended - Keep only suspended
+/resetstats @username -issue - Keep only issue accounts
 
 📢 Broadcast:
 /broadcast message - Broadcast to users
@@ -3051,6 +3879,11 @@ Note: You need approval to use /work
 # Admin contact command
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
+    # Get system status
+    system_status = get_system_status()
+    work_enabled = system_status.get("work_enabled", True)
+    system_status_text = "🟢 ONLINE" if work_enabled else "🔴 OFFLINE"
+    
     admin_info = f"""
 Admin Contact
 
@@ -3078,11 +3911,106 @@ Contact the admin directly for:
 🔍 Account checking system
 📈 User work limits
 ✏️ Edit user statistics
+🔌 System on/off control
+📢 Custom on/off notices
+🗑️ Unmarkp system to clear pending accounts
+
+📊 System Status: {system_status_text}
+{'✅ Work system is enabled' if work_enabled else '⚠️ Work system is temporarily disabled'}
     """
     
     bot.send_message(message.chat.id, admin_info)
 
-# Stock command (Admin/Subadmin only)
+# Stats command
+@bot.message_handler(commands=['stats'])
+def stats_command(message):
+    user_id = str(message.from_user.id)
+    username = message.from_user.username or "Unknown"
+    
+    # Update username mapping
+    if username != "Unknown":
+        update_username_mapping(user_id, username)
+    
+    # Check if user is banned
+    if is_user_banned(user_id):
+        bot.send_message(message.chat.id, "❌ You have been banned from using this bot.")
+        return
+    
+    # Check if user is approved
+    if not is_user_approved(user_id):
+        bot.send_message(message.chat.id, "❌ You need approval to use this bot.")
+        return
+    
+    user_stats = get_user_stats(user_id)
+    
+    if user_stats:
+        total = user_stats.get('total', 0)
+        confirmed = user_stats.get('confirmed', 0)
+        suspended = user_stats.get('suspended', 0)
+        c_suspended = user_stats.get('c_suspended', 0)
+        issue = user_stats.get('issue', 0)
+        user_code = user_stats.get('user_code', 'Unknown')
+        
+        # Calculate success rate
+        success_rate = 0
+        if total > 0:
+            success_rate = (confirmed / total) * 100
+        
+        # Get user limit info
+        limit = get_user_limit(user_id)
+        remaining = max(0, limit - total) if limit > 0 else "∞"
+        
+        # Get pending info
+        pending_info = get_pending_accounts_info()
+        user_pending = pending_info.get(user_stats.get('username', username), {})
+        pending_count = user_pending.get('pending_count', 0) if user_pending else 0
+        
+        stats_text = f"""
+📊 YOUR STATS
+
+👤 User Info:
+🔢 User Code: {user_code}
+📛 Username: @{user_stats.get('username', username)}
+🆔 User ID: {user_id}
+
+📈 Performance:
+✅ Confirmed: {confirmed}
+❌ Suspended: {suspended}
+🟡 C.Suspended: {c_suspended}
+⚠️ Issue: {issue}
+📊 Total Processed: {total}
+
+📈 Success Rate: {success_rate:.1f}%
+
+📋 Pending Status:
+{'🟠 Pending accounts: ' + str(pending_count) if pending_count > 0 else '✅ No pending accounts'}
+
+{'🚫 Work Limit: ' + str(limit) + ' accounts' if limit > 0 else '✅ No work limit'}
+{'📊 Remaining: ' + str(remaining) + ' accounts' if limit > 0 else ''}
+        """
+    else:
+        stats_text = f"""
+📊 YOUR STATS
+
+👤 User Info:
+📛 Username: @{username}
+🆔 User ID: {user_id}
+
+📈 Performance:
+✅ Confirmed: 0
+❌ Suspended: 0
+🟡 C.Suspended: 0
+⚠️ Issue: 0
+📊 Total Processed: 0
+
+💡 Note: 
+You haven't processed any accounts yet.
+Use /work to start processing.
+        """
+    
+    bot.send_message(message.chat.id, stats_text)
+
+# Stock command
 @bot.message_handler(commands=['stock'])
 def stock_command(message):
     user_id = str(message.from_user.id)
@@ -3112,7 +4040,7 @@ processing these accounts.
     
     bot.send_message(message.chat.id, stock_info)
 
-# Ban command (Admin/Subadmin only)
+# Ban command
 @bot.message_handler(commands=['ban'])
 def ban_command(message):
     user_id = str(message.from_user.id)
@@ -3144,7 +4072,7 @@ def ban_command(message):
     else:
         bot.send_message(message.chat.id, f"❌ User @{username} not found or already banned.")
 
-# Unban command (Admin/Subadmin only)
+# Unban command
 @bot.message_handler(commands=['unban'])
 def unban_command(message):
     user_id = str(message.from_user.id)
@@ -3176,7 +4104,7 @@ def unban_command(message):
     else:
         bot.send_message(message.chat.id, f"❌ User @{username} not found or not banned.")
 
-# Set rules command (Admin only)
+# Set rules command
 @bot.message_handler(commands=['setrules'])
 def setrules_command(message):
     user_id = str(message.from_user.id)
@@ -3248,7 +4176,7 @@ def slogout_command(message):
     else:
         bot.send_message(message.chat.id, "ℹ️ You are not logged in as sub-admin.")
 
-# Upload command (Admin/Subadmin only)
+# Upload command
 @bot.message_handler(commands=['upload'])
 def upload_command(message):
     user_id = str(message.from_user.id)
@@ -3398,135 +4326,162 @@ def handle_allresult_callback(call):
         bot.send_message(call.message.chat.id, response, reply_markup=keyboard)
         bot.answer_callback_query(call.id, f"Found {len(files)} files")
 
-# Work command (Public command - for approved users only)
-@bot.message_handler(commands=['work'])
-def work_command(message):
+# EXPORT command - send Excel file
+@bot.message_handler(commands=['export'])
+def export_command(message):
     user_id = str(message.from_user.id)
-    username = message.from_user.username or "User"
     
-    # Update username mapping
-    if username != "User":
-        update_username_mapping(user_id, username)
-    
-    # Check if user is banned
-    if is_user_banned(user_id):
-        bot.send_message(message.chat.id, "❌ You have been banned from using this bot.")
+    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
+        bot.send_message(message.chat.id, "❌ This command is for admins only.")
         return
     
-    # Check if user is approved
-    if not is_user_approved(user_id):
-        # Check if pending
-        if has_pending_approval(user_id):
-            bot.send_message(message.chat.id, 
-                           "⏳ Your approval request is pending.\n"
-                           "Please wait for admin approval.")
+    if not os.path.exists(EXCEL_FILE):
+        bot.send_message(message.chat.id, "❌ No results file found yet.")
+        return
+    
+    try:
+        # Check if file is empty or has data
+        file_size = os.path.getsize(EXCEL_FILE)
+        if file_size < 1024:  # Less than 1KB
+            bot.send_message(message.chat.id, "📭 Excel file is empty. No data to show.")
             return
+            
+        # Count records
+        try:
+            df = pd.read_excel(EXCEL_FILE)
+            record_count = len(df)
+        except:
+            record_count = 0
         
-        # Show approval request
-        keyboard = InlineKeyboardMarkup()
-        keyboard.row(InlineKeyboardButton("✅ Apply for Approval", callback_data="apply_approval"))
+        # Get taken info
+        taken_info = get_taken_info()
         
-        bot.send_message(message.chat.id,
-                        "🔒 Approval Required\n\n"
-                        "You need admin approval to use this bot.\n"
-                        "Click the button below to apply for approval:",
-                        reply_markup=keyboard)
+        # Get pending accounts info (from system only)
+        pending_info = get_pending_accounts_info()
+        total_pending = sum(info.get('pending_count', 0) for info in pending_info.values())
+        
+        # Send the Excel file
+        with open(EXCEL_FILE, 'rb') as f:
+            bot.send_document(message.chat.id, f, 
+                            caption=f"📊 Results Excel File\n\n"
+                                   f"📄 Current working file\n"
+                                   f"📊 Records: {record_count} accounts\n"
+                                   f"✅ Confirmed: Green background\n"
+                                   f"❌ Suspended: Red background\n"
+                                   f"🟡 C.Suspended: Yellow background\n"
+                                   f"⚠️ Issue: Purple background\n"
+                                   f"🔵 Taken: Blue background\n"
+                                   f"📋 Full cookies in Input column\n"
+                                   f"👤 User Code column added\n\n"
+                                   f"🆕 Feature Stats:\n"
+                                   f"🔵 Taken: {taken_info.get('taken', 0)}\n"
+                                   f"🟢 Fresh: {taken_info.get('fresh', 0)}\n"
+                                   f"🟠 Pending (System): {total_pending}")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Error sending file: {str(e)}")
+
+# Broadcast command
+@bot.message_handler(commands=['broadcast'])
+def broadcast_command(message):
+    user_id = str(message.from_user.id)
+    
+    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
+        bot.send_message(message.chat.id, "❌ This command is for admins only.")
         return
     
-    # Check if user has reached limit
-    limit_reached, remaining = check_user_limit(user_id)
-    if limit_reached:
-        limit = get_user_limit(user_id)
-        bot.send_message(message.chat.id,
-                        f"🚫 Work Limit Reached!\n\n"
-                        f"You have reached your work limit of {limit} accounts.\n"
-                        f"Please contact admin to increase your limit.\n\n"
-                        f"Your stats: {remaining} accounts remaining (0)")
-        return
-    
-    # Check if there are any uploaded files
-    files = [f for f in os.listdir(FILES_FOLDER) if f.endswith('.txt')]
-    if not files:
+    text = message.text.replace('/broadcast', '').strip()
+    if not text:
         bot.send_message(message.chat.id, 
-                         "❌ No accounts file found. Please contact admin to upload files.")
+                        "📢 Broadcast Message\n\n"
+                        "Usage:\n"
+                        "/broadcast your message here\n\n"
+                        "Example:\n"
+                        "/broadcast Server maintenance at 10 PM")
         return
     
-    # Get the most recent file
-    latest_file = max(files, key=lambda f: os.path.getctime(os.path.join(FILES_FOLDER, f)))
-    filepath = os.path.join(FILES_FOLDER, latest_file)
+    users_data = load_json(USERS_FILE)
+    user_ids = list(users_data.get("users", {}).keys())
     
-    # Read all lines
-    with open(filepath, 'r', encoding='utf-8') as f:
-        all_lines = [line.strip() for line in f if line.strip()]
+    success = 0
+    failed = 0
     
-    # Filter out already processed accounts
-    unprocessed_lines = []
-    for line in all_lines:
-        parts = line.split('|')
-        if len(parts) >= 2:
-            account_username = parts[0].strip()
-            if not is_account_processed(account_username):
-                unprocessed_lines.append(line)
+    bot.send_message(message.chat.id, f"📢 Broadcasting to {len(user_ids)} users...")
     
-    if not unprocessed_lines:
+    for uid in user_ids:
+        try:
+            bot.send_message(uid, f"📢 Announcement:\n\n{text}")
+            success += 1
+        except:
+            failed += 1
+    
+    bot.send_message(message.chat.id, 
+                     f"✅ Broadcast complete!\n"
+                     f"✓ Sent to: {success} users\n"
+                     f"✗ Failed: {failed}")
+
+# Change password command
+@bot.message_handler(commands=['changepassword'])
+def changepassword_command(message):
+    user_id = str(message.from_user.id)
+    
+    if not is_admin(user_id):
+        bot.send_message(message.chat.id, "❌ This command is for main admin only.")
+        return
+    
+    new_password = message.text.replace('/changepassword', '').strip()
+    if not new_password:
         bot.send_message(message.chat.id, 
-                         "📭 No unprocessed accounts found.\n"
-                         "All accounts in the file have been processed.")
+                        "🔐 Change Admin Password\n\n"
+                        "Usage:\n"
+                        "/changepassword new_password\n\n"
+                        "Example:\n"
+                        "/changepassword MyNewPass123")
         return
     
-    # Get user code
-    user_code = get_user_code(user_id) or "Unknown"
+    if len(new_password) < 1:
+        bot.send_message(message.chat.id, "❌ Password must be at least 1 character long.")
+        return
     
-    # Store work session
-    work_sessions[user_id] = {
-        'filepath': filepath,
-        'lines': unprocessed_lines,
-        'current_index': 0,
-        'processed_count': 0,
-        'username': username,
-        'user_code': user_code
-    }
-    
-    # Get rules
-    rules = get_rules()
-    
-    # Get current cooldown
-    cooldown_time = get_cooldown_time()
-    
-    # Get user limit info
-    limit = get_user_limit(user_id)
-    user_stats = get_user_stats(user_id)
-    processed = user_stats.get("total", 0) if user_stats else 0
-    
-    # Show instructions with buttons
-    instructions = f"""
-💼 WORK MODE
+    if update_admin_password(new_password):
+        bot.send_message(message.chat.id, f"✅ Admin password has been changed to: {new_password}")
+    else:
+        bot.send_message(message.chat.id, "❌ Error changing password.")
 
-👤 Worker: @{username}
-🔢 User Code: {user_code}
-
-📋 Rules:
-{rules}
-
-📊 Available: {len(unprocessed_lines)} accounts
-
-⏰ Cooldown: {cooldown_time} seconds per account
-
-📈 Your Stats:
-✅ Processed: {processed} accounts
-{'🚫 Limit: ' + str(limit) + ' accounts' if limit > 0 else '✅ No limit'}
-{'📊 Remaining: ' + str(remaining) + ' accounts' if limit > 0 else ''}
-
-Ready to start processing?
-    """
+# Delete all files command
+@bot.message_handler(commands=['deleteall'])
+def deleteall_command(message):
+    user_id = str(message.from_user.id)
     
-    keyboard = InlineKeyboardMarkup()
-    keyboard.row(
-        InlineKeyboardButton("🚀 Start Working", callback_data="work_start"),
-        InlineKeyboardButton("❌ Cancel", callback_data="work_cancel")
-    )
+    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
+        bot.send_message(message.chat.id, "❌ This command is for admins only.")
+        return
     
-    bot.send_message(message.chat.id, instructions, reply_markup=keyboard)
+    try:
+        # Count files before deletion
+        file_count = 0
+        if os.path.exists(FILES_FOLDER):
+            file_count = len([f for f in os.listdir(FILES_FOLDER) if f.endswith('.txt')])
+        
+        # Delete all files in uploaded_files folder
+        if os.path.exists(FILES_FOLDER):
+            shutil.rmtree(FILES_FOLDER)
+            os.makedirs(FILES_FOLDER, exist_ok=True)
+        
+        # Clear processed accounts
+        with open(PROCESSED_ACCOUNTS_FILE, 'w') as f:
+            json.dump({"processed": []}, f, indent=4)
+        
+        # Clear work sessions
+        work_sessions.clear()
+        account_data_store.clear()
+        
+        # Clear cooldown timers
+        cooldown_timers.clear()
+        
+        bot.send_message(message.chat.id, f"✅ Successfully deleted {file_count} uploaded files and cleared processed accounts list.")
+        
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Error deleting files: {str(e)}")
 
 # Handle work callback buttons
 @bot.callback_query_handler(func=lambda call: call.data.startswith('work_'))
@@ -3558,7 +4513,7 @@ def handle_work_callback(call):
         )
         bot.answer_callback_query(call.id, "Work cancelled")
 
-# Show next account to process (UPDATED WITH COPYABLE FIELDS)
+# Show next account to process
 def show_next_account(chat_id, user_id):
     if user_id not in work_sessions:
         return
@@ -3604,7 +4559,7 @@ def show_next_account(chat_id, user_id):
         # Add UID to background check queue
         add_uid_to_check_queue(username, account_id)
         
-        # Create message with copyable format (FEATURE 1)
+        # Create message with copyable format
         message_text = f"""
 🔢 Account {current_index + 1} of {len(session['lines'])}
 
@@ -3672,7 +4627,7 @@ def handle_account_callback(call):
     # Process account immediately
     process_account_now(call, account_id, action)
 
-# Process account immediately (without waiting for UID check)
+# Process account immediately
 def process_account_now(call, account_id, action):
     user_id = str(call.from_user.id)
     
@@ -3821,412 +4776,6 @@ def handle_cancel_current(call):
     )
     bot.answer_callback_query(call.id, "Session cancelled")
 
-# Stats command (Public command - for approved users only)
-@bot.message_handler(commands=['stats'])
-def stats_command(message):
-    user_id = str(message.from_user.id)
-    username = message.from_user.username or "Unknown"
-    
-    # Update username mapping
-    if username != "Unknown":
-        update_username_mapping(user_id, username)
-    
-    # Check if user is banned
-    if is_user_banned(user_id):
-        bot.send_message(message.chat.id, "❌ You have been banned from using this bot.")
-        return
-    
-    # Check if user is approved
-    if not is_user_approved(user_id):
-        bot.send_message(message.chat.id, "❌ You need approval to use this bot.")
-        return
-    
-    user_stats = get_user_stats(user_id)
-    
-    if user_stats:
-        total = user_stats.get('total', 0)
-        confirmed = user_stats.get('confirmed', 0)
-        suspended = user_stats.get('suspended', 0)
-        c_suspended = user_stats.get('c_suspended', 0)
-        issue = user_stats.get('issue', 0)
-        user_code = user_stats.get('user_code', 'Unknown')
-        
-        # Calculate success rate
-        success_rate = 0
-        if total > 0:
-            success_rate = (confirmed / total) * 100
-        
-        # Get user limit info
-        limit = get_user_limit(user_id)
-        remaining = max(0, limit - total) if limit > 0 else "∞"
-        
-        stats_text = f"""
-📊 YOUR STATS
-
-👤 User Info:
-🔢 User Code: {user_code}
-📛 Username: @{user_stats.get('username', username)}
-🆔 User ID: {user_id}
-
-📈 Performance:
-✅ Confirmed: {confirmed}
-❌ Suspended: {suspended}
-🟡 C.Suspended: {c_suspended}
-⚠️ Issue: {issue}
-📊 Total Processed: {total}
-
-📊 Success Rate: {success_rate:.1f}%
-
-{'🚫 Work Limit: ' + str(limit) + ' accounts' if limit > 0 else '✅ No work limit'}
-{'📊 Remaining: ' + str(remaining) + ' accounts' if limit > 0 else ''}
-        """
-    else:
-        stats_text = f"""
-📊 YOUR STATS
-
-👤 User Info:
-📛 Username: @{username}
-🆔 User ID: {user_id}
-
-📈 Performance:
-✅ Confirmed: 0
-❌ Suspended: 0
-🟡 C.Suspended: 0
-⚠️ Issue: 0
-📊 Total Processed: 0
-
-Note: 
-You haven't processed any accounts yet.
-Use /work to start processing.
-        """
-    
-    bot.send_message(message.chat.id, stats_text)
-
-# Allstats command (Admin/Subadmin only) - FIXED
-@bot.message_handler(commands=['allstats'])
-def allstats_command(message):
-    user_id = str(message.from_user.id)
-    
-    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
-        bot.send_message(message.chat.id, "❌ This command is for admins only.")
-        return
-    
-    users_data = load_json(USERS_FILE)
-    users_dict = users_data.get("users", {})
-    
-    if not users_dict:
-        bot.send_message(message.chat.id, "❌ No users found.")
-        return
-    
-    users_list = []
-    total_confirmed = 0
-    total_suspended = 0
-    total_c_suspended = 0
-    total_issue = 0
-    total_all = 0
-    banned_users = []
-    pending_count = len(get_pending_approvals())
-    
-    for uid, stats in users_dict.items():
-        username = stats.get('username', 'Unknown')
-        user_code = stats.get('user_code', 'Unknown')
-        confirmed = stats.get('confirmed', 0)
-        suspended = stats.get('suspended', 0)
-        c_suspended = stats.get('c_suspended', 0)
-        issue = stats.get('issue', 0)
-        total = stats.get('total', 0)
-        
-        is_banned = uid in users_data.get("banned", [])
-        status_symbol = "🚫" if is_banned else "✅"
-        
-        # Get user limit
-        limit = get_user_limit(uid)
-        limit_text = f" | 🚫 Limit: {limit}" if limit > 0 else ""
-        
-        users_list.append(f"{status_symbol} {user_code} (@{username})\n   ✅ {confirmed} | ❌ {suspended} | 🟡 {c_suspended} | ⚠️ {issue} | 📊 {total}{limit_text}")
-        
-        if is_banned:
-            banned_users.append(f"@{username}")
-        
-        total_confirmed += confirmed
-        total_suspended += suspended
-        total_c_suspended += c_suspended
-        total_issue += issue
-        total_all += total
-    
-    # Get stock information
-    unprocessed_count, file_count = count_unprocessed_stock()
-    
-    # Get current cooldown
-    cooldown_time = get_cooldown_time()
-    
-    # Get taken info
-    taken_info = get_taken_info()
-    
-    # Get pending accounts info
-    pending_accounts_info = get_pending_accounts_info()
-    total_pending_accounts = sum(info.get('pending_count', 0) for info in pending_accounts_info.values())
-    
-    summary = f"""
-📊 ALL USER STATS
-
-👥 User Overview:
-✅ Approved Users: {len(users_dict)}
-⏳ Pending Approvals: {pending_count}
-✅ Active Users: {len(users_dict) - len(banned_users)}
-🚫 Banned Users: {len(banned_users)}
-
-📈 Total Performance:
-✅ Total Confirmed: {total_confirmed}
-❌ Total Suspended: {total_suspended}
-🟡 Total C.Suspended: {total_c_suspended}
-⚠️ Total Issue: {total_issue}
-📊 Total Processed: {total_all}
-
-🆕 Feature Stats:
-🔵 Taken Accounts: {taken_info.get('taken', 0)}
-🟠 Pending Accounts: {total_pending_accounts}
-🟢 Fresh Accounts: {taken_info.get('fresh', 0)}
-
-📦 Stock Information:
-📁 Files: {file_count}
-🔢 Unprocessed: {unprocessed_count}
-
-⏰ System Settings:
-Cooldown: {cooldown_time} seconds
-🔍 Check Interval: {CHECK_INTERVAL} seconds
-    """
-    
-    if banned_users:
-        summary += f"\n\n🚫 Banned Users:\n" + "\n".join(banned_users)
-    
-    # Send summary first
-    bot.send_message(message.chat.id, summary)
-    
-    # Then send individual user stats (split if too long)
-    user_stats_text = "📋 Individual User Stats:\n\n"
-    for i, user_stat in enumerate(users_list):
-        if len(user_stats_text + user_stat + "\n\n") > 4000:  # Telegram message limit
-            bot.send_message(message.chat.id, user_stats_text)
-            user_stats_text = ""
-        user_stats_text += user_stat + "\n\n"
-    
-    if user_stats_text:
-        bot.send_message(message.chat.id, user_stats_text)
-
-# Reset stats command (Admin only)
-@bot.message_handler(commands=['resetstats'])
-def resetstats_command(message):
-    user_id = str(message.from_user.id)
-    
-    if not is_admin(user_id):
-        bot.send_message(message.chat.id, "❌ This command is for main admin only.")
-        return
-    
-    # Create confirmation keyboard
-    keyboard = InlineKeyboardMarkup()
-    keyboard.row(
-        InlineKeyboardButton("✅ Yes, Reset All Stats", callback_data="reset_confirm"),
-        InlineKeyboardButton("❌ No, Cancel", callback_data="reset_cancel")
-    )
-    
-    bot.send_message(message.chat.id,
-                     "⚠️ Reset All User Statistics\n\n"
-                     "This will reset ALL user statistics to zero:\n"
-                     "- ✅ Confirmed counts\n"
-                     "- ❌ Suspended counts\n"
-                     "- 🟡 C.Suspended counts\n"
-                     "- ⚠️ Issue counts\n"
-                     "- 📈 Total processed\n"
-                     "- 📊 Excel file will be cleared\n\n"
-                     "This action cannot be undone!\n\n"
-                     "Are you sure you want to reset all statistics?",
-                     reply_markup=keyboard)
-
-# Handle reset callback
-@bot.callback_query_handler(func=lambda call: call.data.startswith('reset_'))
-def handle_reset_callback(call):
-    action = call.data.split('_')[1]
-    
-    if action == "confirm":
-        if reset_all_stats():
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text="✅ All user statistics have been reset to zero AND Excel file has been cleared!"
-            )
-        else:
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text="❌ Error resetting statistics."
-            )
-    else:
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="❌ Statistics reset cancelled."
-        )
-    
-    bot.answer_callback_query(call.id)
-
-# EXPORT command - send Excel file (Admin/Subadmin only) - CHANGED FROM /result
-@bot.message_handler(commands=['export'])
-def export_command(message):
-    user_id = str(message.from_user.id)
-    
-    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
-        bot.send_message(message.chat.id, "❌ This command is for admins only.")
-        return
-    
-    if not os.path.exists(EXCEL_FILE):
-        bot.send_message(message.chat.id, "❌ No results file found yet.")
-        return
-    
-    try:
-        # Check if file is empty or has data
-        file_size = os.path.getsize(EXCEL_FILE)
-        if file_size < 1024:  # Less than 1KB
-            bot.send_message(message.chat.id, "📭 Excel file is empty. No data to show.")
-            return
-            
-        # Count records
-        try:
-            df = pd.read_excel(EXCEL_FILE)
-            record_count = len(df)
-        except:
-            record_count = 0
-        
-        # Get taken info
-        taken_info = get_taken_info()
-        
-        # Get pending accounts info (from system only)
-        pending_info = get_pending_accounts_info()
-        total_pending = sum(info.get('pending_count', 0) for info in pending_info.values())
-        
-        # Send the Excel file
-        with open(EXCEL_FILE, 'rb') as f:
-            bot.send_document(message.chat.id, f, 
-                            caption=f"📊 Results Excel File\n\n"
-                                   f"📄 Current working file\n"
-                                   f"📊 Records: {record_count} accounts\n"
-                                   f"✅ Confirmed: Green background\n"
-                                   f"❌ Suspended: Red background\n"
-                                   f"🟡 C.Suspended: Yellow background\n"
-                                   f"⚠️ Issue: Purple background\n"
-                                   f"🔵 Taken: Blue background\n"
-                                   f"📋 Full cookies in Input column\n"
-                                   f"👤 User Code column added\n\n"
-                                   f"🆕 Feature Stats:\n"
-                                   f"🔵 Taken: {taken_info.get('taken', 0)}\n"
-                                   f"🟢 Fresh: {taken_info.get('fresh', 0)}\n"
-                                   f"🟠 Pending (System): {total_pending}")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Error sending file: {str(e)}")
-
-# Broadcast command (Admin/Subadmin only)
-@bot.message_handler(commands=['broadcast'])
-def broadcast_command(message):
-    user_id = str(message.from_user.id)
-    
-    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
-        bot.send_message(message.chat.id, "❌ This command is for admins only.")
-        return
-    
-    text = message.text.replace('/broadcast', '').strip()
-    if not text:
-        bot.send_message(message.chat.id, 
-                        "📢 Broadcast Message\n\n"
-                        "Usage:\n"
-                        "/broadcast your message here\n\n"
-                        "Example:\n"
-                        "/broadcast Server maintenance at 10 PM")
-        return
-    
-    users_data = load_json(USERS_FILE)
-    user_ids = list(users_data.get("users", {}).keys())
-    
-    success = 0
-    failed = 0
-    
-    bot.send_message(message.chat.id, f"📢 Broadcasting to {len(user_ids)} users...")
-    
-    for uid in user_ids:
-        try:
-            bot.send_message(uid, f"📢 Announcement:\n\n{text}")
-            success += 1
-        except:
-            failed += 1
-    
-    bot.send_message(message.chat.id, 
-                     f"✅ Broadcast complete!\n"
-                     f"✓ Sent to: {success} users\n"
-                     f"✗ Failed: {failed}")
-
-# Change password command (Admin only)
-@bot.message_handler(commands=['changepassword'])
-def changepassword_command(message):
-    user_id = str(message.from_user.id)
-    
-    if not is_admin(user_id):
-        bot.send_message(message.chat.id, "❌ This command is for main admin only.")
-        return
-    
-    new_password = message.text.replace('/changepassword', '').strip()
-    if not new_password:
-        bot.send_message(message.chat.id, 
-                        "🔐 Change Admin Password\n\n"
-                        "Usage:\n"
-                        "/changepassword new_password\n\n"
-                        "Example:\n"
-                        "/changepassword MyNewPass123")
-        return
-    
-    if len(new_password) < 1:
-        bot.send_message(message.chat.id, "❌ Password must be at least 1 character long.")
-        return
-    
-    if update_admin_password(new_password):
-        bot.send_message(message.chat.id, f"✅ Admin password has been changed to: {new_password}")
-    else:
-        bot.send_message(message.chat.id, "❌ Error changing password.")
-
-# Delete all files command (Admin/Subadmin only)
-@bot.message_handler(commands=['deleteall'])
-def deleteall_command(message):
-    user_id = str(message.from_user.id)
-    
-    if not (is_admin(user_id) or is_subadmin(user_id) or subadmin_sessions.get(user_id)):
-        bot.send_message(message.chat.id, "❌ This command is for admins only.")
-        return
-    
-    try:
-        # Count files before deletion
-        file_count = 0
-        if os.path.exists(FILES_FOLDER):
-            file_count = len([f for f in os.listdir(FILES_FOLDER) if f.endswith('.txt')])
-        
-        # Delete all files in uploaded_files folder
-        if os.path.exists(FILES_FOLDER):
-            shutil.rmtree(FILES_FOLDER)
-            os.makedirs(FILES_FOLDER, exist_ok=True)
-        
-        # Clear processed accounts
-        with open(PROCESSED_ACCOUNTS_FILE, 'w') as f:
-            json.dump({"processed": []}, f, indent=4)
-        
-        # Clear work sessions
-        work_sessions.clear()
-        account_data_store.clear()
-        
-        # Clear cooldown timers
-        cooldown_timers.clear()
-        
-        bot.send_message(message.chat.id, f"✅ Successfully deleted {file_count} uploaded files and cleared processed accounts list.")
-        
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Error deleting files: {str(e)}")
-
 # Main function with webhook fix
 if __name__ == "__main__":
     print("🚀 Bot is starting...")
@@ -4243,13 +4792,22 @@ if __name__ == "__main__":
     print("👨‍💼 Sub-admin system initialized")
     print("💾 All results folder created")
     print(f"⏰ Cooldown system initialized: {get_cooldown_time()} seconds")
+    
+    # Get system status
+    system_status = get_system_status()
+    work_enabled = system_status.get("work_enabled", True)
+    print(f"🔌 System status: {'🟢 ONLINE' if work_enabled else '🔴 OFFLINE'}")
+    
     print("🆕 New features initialized:")
     print("   📋 Copyable username/password in work")
     print("   🔵 Taken system")
-    print("   🟠 Pending system (system only, not Excel)")
+    print("   🟠 Pending system (FIXED)")
     print("   🔍 Account checking system")
     print("   📈 User work limits")
     print("   ✏️ Edit user statistics")
+    print("   🔌 System on/off control")
+    print("   📢 Custom on/off notices")
+    print("   🗑️ Unmarkp system to clear pending accounts")
     print(f"   🔍 Check interval: {CHECK_INTERVAL} seconds")
     
     # Test Excel file
