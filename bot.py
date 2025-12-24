@@ -18,7 +18,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Initialize bot
-TOKEN = "8564619628:AAEFvSvmIpkoMOAZb195SVy_1z-qylpwjHY"
+TOKEN = "8360833535:AAFAk8vp2ODvSJbj1rztN2BmFanmiTvkozs"
 bot = telebot.TeleBot(TOKEN, parse_mode=None)  # Set parse_mode to None by default
 
 # File paths
